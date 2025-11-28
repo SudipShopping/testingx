@@ -589,12 +589,29 @@ def main_bot_handle(update):
             clear_state(uid)
             send_msg(MAIN_BOT_API, chat_id, f"✅ <b>Payment Request Submitted!</b>\n\nPayment ID: <code>{payment_id}</code>\nMethod: {full_method_str}\nAmount: {amount}\n\n⏳ Admin will verify within 1-24 hours.")
             
-            # Notify admin with photo
-            admin_msg = f"🔔 <b>NEW PAYMENT REQUEST</b>\nUser: @{username} (ID: <code>{uid}</code>)\nPayment ID: <code>{payment_id}</code>\nMethod: {full_method_str}\nAmount: {amount}\n\n<b>Commands:</b>\nReply: <code>/approve {uid}</code>\nOr: <code>/decline {uid} reason</code>"
+            # Notify admin with photo AND buttons (Method 2)
+            admin_msg = f"🔔 <b>NEW PAYMENT REQUEST</b>\nUser: @{username} (ID: <code>{uid}</code>)\nPayment ID: <code>{payment_id}</code>\nMethod: {full_method_str}\nAmount: {amount}\n\nApprove or Decline below:"
+            
+            admin_markup = {
+                "inline_keyboard": [
+                    [
+                        {"text": "✅ Approve", "callback_data": f"approve_{uid}"},
+                        {"text": "❌ Decline", "callback_data": f"decline_{uid}"}
+                    ]
+                ]
+            }
+            
             try:
-                fast_session.post(f"{MAIN_BOT_API}/sendPhoto", json={"chat_id": ADMIN_IDS[0], "photo": file_id, "caption": admin_msg, "parse_mode": "HTML"}, timeout=10)
-            except:
-                send_msg(MAIN_BOT_API, ADMIN_IDS[0], admin_msg)
+                fast_session.post(f"{ADMIN_BOT_API}/sendPhoto", json={
+                    "chat_id": ADMIN_IDS[0], 
+                    "photo": file_id, 
+                    "caption": admin_msg, 
+                    "parse_mode": "HTML",
+                    "reply_markup": json.dumps(admin_markup)
+                }, timeout=10)
+            except Exception as e:
+                print(f"Failed to send admin notification: {e}")
+                send_msg(ADMIN_BOT_API, ADMIN_IDS[0], f"⚠️ New payment from @{username} ({uid}) but failed to forward photo.")
             
             return jsonify({"ok": True})
         # ===== END PAYMENT PHOTO HANDLER =====
@@ -1027,9 +1044,18 @@ def mass_schedule_tweets(uid, date_str, time_str, ampm_str, chat_id=None):
         if deleted_count > 0:
             message += f"\n🗑️ <b>{deleted_count}</b> extra unscheduled tweets were deleted."
         
+        # ✅ FIX 2: Send IST time in response for frontend
         if chat_id:
             send_msg(MAIN_BOT_API, chat_id, message)
-        return jsonify({"status": "ok", "message": message, "scheduled_count": scheduled_count, "deleted_count": deleted_count})
+            
+        return jsonify({
+            "status": "ok", 
+            "message": message, 
+            "scheduled_count": scheduled_count, 
+            "deleted_count": deleted_count,
+            "scheduled_time_ist": ist_time, # Human readable IST
+            "scheduled_time_utc": scheduled_time_iso # DB value
+        })
 
     except Exception as e:
         print(f"Mass schedule failed: {e}")
@@ -1263,6 +1289,41 @@ def handle_link_bot_status(uid, chat_id):
 def admin_bot_handle(update):
     chat_id = None
     try:
+        if "callback_query" in update:
+            cb = update["callback_query"]
+            chat_id = cb["message"]["chat"]["id"]
+            admin_uid = cb["from"]["id"]
+            data = cb["data"]
+            
+            # --- Admin Action Logic ---
+            if data.startswith("approve_"):
+                target_uid = data.split("_")[1]
+                handle_approve_payment(chat_id, target_uid)
+                # Remove buttons after action
+                fast_session.post(f"{ADMIN_BOT_API}/editMessageReplyMarkup", json={
+                    "chat_id": chat_id,
+                    "message_id": cb["message"]["message_id"],
+                    "reply_markup": None
+                })
+                fast_session.post(f"{ADMIN_BOT_API}/sendMessage", json={
+                    "chat_id": chat_id,
+                    "text": f"✅ Action taken: Approved for {target_uid}",
+                    "reply_to_message_id": cb["message"]["message_id"]
+                })
+                
+            elif data.startswith("decline_"):
+                target_uid = data.split("_")[1]
+                # Ask for reason
+                set_state(admin_uid, "admin", "waiting_decline_reason", data={"target_uid": target_uid, "msg_id": cb["message"]["message_id"]})
+                fast_session.post(f"{ADMIN_BOT_API}/sendMessage", json={
+                    "chat_id": chat_id,
+                    "text": f"❌ Declining payment for {target_uid}.\n\n✍️ Please reply with the **Reason for Decline**:",
+                    "reply_markup": {"force_reply": True}
+                })
+            
+            fast_session.post(f"{ADMIN_BOT_API}/answerCallbackQuery", json={"callback_query_id": cb["id"]})
+            return jsonify({"ok": True})
+
         if "message" not in update:
             return jsonify({"ok": True})
 
@@ -1279,16 +1340,58 @@ def admin_bot_handle(update):
         scope, state, flow_data = get_state(uid)
 
         if state and scope == "admin":
+            # Handle decline reason
+            if state == "waiting_decline_reason":
+                target_uid = flow_data.get("target_uid")
+                msg_id = flow_data.get("msg_id")
+                reason = text.strip()
+                handle_decline_payment(chat_id, target_uid, reason)
+                clear_state(uid)
+                # Try to remove buttons from original message if possible
+                if msg_id:
+                    fast_session.post(f"{ADMIN_BOT_API}/editMessageReplyMarkup", json={
+                        "chat_id": chat_id,
+                        "message_id": msg_id,
+                        "reply_markup": None
+                    })
+                return jsonify({"ok": True})
+            
             return admin_bot_flow_continue(uid, chat_id, text, state, flow_data)
         
         cmd = text.split()[0].lower() if text.startswith("/") else None
 
         if cmd == "/start" or cmd == "/help":
-            base = "👑 <b>Admin Bot Commands</b>\n/pending - View pending payment requests\n/approve [user_id] - Approve payment\n/decline [user_id] [reason] - Decline payment\n/users - Manage user authorization\n/block_user [ID] - Block user\n/unblock_user [ID] - Unblock user\n/broadcast - Send message to all users\n/add_admin [ID] - Add new admin\n/remove_admin [ID] - Remove admin"
+            base = (
+                "👑 <b>Admin Bot Commands</b>\n"
+                "/pending - View pending payment requests (Photos)\n"
+                "/pending_list - View pending list (Text Only)\n"
+                "/payment_history - View last 20 payments\n"
+                "/search_payment [id/username] - Search payment\n"
+                "/approve [user_id] - Approve payment\n"
+                "/decline [user_id] [reason] - Decline payment\n"
+                "/users - Manage user authorization\n"
+                "/block_user [ID] - Block user\n"
+                "/unblock_user [ID] - Unblock user\n"
+                "/broadcast - Send message to all users\n"
+                "/add_admin [ID] - Add new admin\n"
+                "/remove_admin [ID] - Remove admin"
+            )
             send_msg(ADMIN_BOT_API, chat_id, base)
             return jsonify({"ok": True})
 
-        if cmd == "/pending": return handle_pending_payments(chat_id)
+        if cmd == "/pending": return handle_pending_payments_with_photos(chat_id)
+        
+        if cmd == "/pending_list": return handle_pending_list_text_only(chat_id)
+        
+        if cmd == "/payment_history": return handle_payment_history(chat_id)
+        
+        if cmd == "/search_payment":
+            parts = text.split(maxsplit=1)
+            if len(parts) < 2:
+                send_msg(ADMIN_BOT_API, chat_id, "❌ Usage: <code>/search_payment [user_id or username]</code>")
+            else:
+                return handle_search_payment(chat_id, parts[1].strip())
+            return jsonify({"ok": True})
 
         if cmd == "/approve":
             parts = text.split(maxsplit=1)
@@ -1338,6 +1441,7 @@ def admin_bot_handle(update):
 
     except Exception as e:
         print(f"FATAL ERROR in admin webhook: {e}")
+        traceback.print_exc()
         if chat_id:
             try:
                 send_msg(ADMIN_BOT_API, chat_id, "❌ An unexpected error occurred in Admin Bot. Please notify another admin.")
@@ -1369,7 +1473,59 @@ def admin_bot_flow_continue(uid, chat_id, text, state, flow_data):
 # ===========================
 # 👑 ADMIN: PAYMENT MANAGEMENT
 # ===========================
-def handle_pending_payments(chat_id):
+def handle_pending_payments_with_photos(chat_id):
+    """Method 1: Show photos with inline buttons"""
+    try:
+        url = f"{SUPABASE_URL}/rest/v1/payment_requests?select=*&status=eq.PENDING&order=created_at.asc&limit=10"
+        r = fast_session.get(url, headers=SB_HEADERS, timeout=10)
+        r.raise_for_status()
+        requests = r.json()
+        
+        if not requests:
+            send_msg(ADMIN_BOT_API, chat_id, "✅ No pending payment requests.")
+            return jsonify({"ok": True})
+        
+        send_msg(ADMIN_BOT_API, chat_id, f"📸 <b>Showing {len(requests)} Pending Requests...</b>")
+        
+        for req in requests:
+            created = req['created_at'][:16].replace('T', ' ')
+            uid = req['tg_id']
+            caption = (
+                f"👤 User: @{req.get('username', 'N/A')}\n"
+                f"🆔 TG ID: <code>{uid}</code>\n"
+                f"💳 Payment ID: <code>{req['payment_id']}</code>\n"
+                f"💰 Amount: {req['amount']}\n"
+                f"📱 Method: {req['payment_method']}\n"
+                f"🕐 Time: {created}"
+            )
+            
+            markup = {
+                "inline_keyboard": [
+                    [
+                        {"text": "✅ Approve", "callback_data": f"approve_{uid}"},
+                        {"text": "❌ Decline", "callback_data": f"decline_{uid}"}
+                    ]
+                ]
+            }
+            
+            # Send photo
+            if req.get('payment_proof'):
+                fast_session.post(f"{ADMIN_BOT_API}/sendPhoto", json={
+                    "chat_id": chat_id, 
+                    "photo": req['payment_proof'], 
+                    "caption": caption, 
+                    "parse_mode": "HTML",
+                    "reply_markup": json.dumps(markup)
+                })
+            else:
+                send_msg(ADMIN_BOT_API, chat_id, caption + "\n\n⚠️ No Screenshot Found.", reply_markup=markup)
+                
+    except Exception as e:
+        send_msg(ADMIN_BOT_API, chat_id, f"❌ Error: {e}")
+    return jsonify({"ok": True})
+
+def handle_pending_list_text_only(chat_id):
+    """Method 3: Text only list"""
     try:
         url = f"{SUPABASE_URL}/rest/v1/payment_requests?select=*&status=eq.PENDING&order=created_at.desc&limit=20"
         r = fast_session.get(url, headers=SB_HEADERS, timeout=10)
@@ -1380,12 +1536,74 @@ def handle_pending_payments(chat_id):
             send_msg(ADMIN_BOT_API, chat_id, "✅ No pending payment requests.")
             return jsonify({"ok": True})
         
-        msg = "<b>💳 PENDING PAYMENT REQUESTS</b>\n\n"
-        for req in requests[:10]:
+        msg = "<b>💳 PENDING PAYMENTS (Text Only)</b>\n\n"
+        for req in requests:
             created = req['created_at'][:16].replace('T', ' ')
-            msg += f"👤 @{req.get('username', 'N/A')}\nID: <code>{req['tg_id']}</code>\nPayment: <code>{req['payment_id']}</code>\n{req['payment_method']} | {req['amount']}\nTime: {created}\n<code>/approve {req['tg_id']}</code> | <code>/decline {req['tg_id']} reason</code>\n━━━━━━━━━━━━━━━━\n"
+            msg += f"👤 @{req.get('username', 'N/A')}\nID: <code>{req['tg_id']}</code> | Payment: <code>{req['payment_id']}</code>\n{req['payment_method']} | {req['amount']} | {created}\n<code>/approve {req['tg_id']}</code> | <code>/decline {req['tg_id']} reason</code>\n━━━━━━━━━━━━━━━━\n"
         
         send_msg(ADMIN_BOT_API, chat_id, msg)
+    except Exception as e:
+        send_msg(ADMIN_BOT_API, chat_id, f"❌ Error: {e}")
+    return jsonify({"ok": True})
+
+def handle_payment_history(chat_id):
+    try:
+        url = f"{SUPABASE_URL}/rest/v1/payment_requests?select=*&order=updated_at.desc&limit=20"
+        r = fast_session.get(url, headers=SB_HEADERS, timeout=10)
+        r.raise_for_status()
+        requests = r.json()
+        
+        if not requests:
+            send_msg(ADMIN_BOT_API, chat_id, "📝 No payment history found.")
+            return jsonify({"ok": True})
+        
+        msg = "<b>📜 LAST 20 PAYMENT HISTORY</b>\n\n"
+        for req in requests:
+            status_icon = "🟢" if req['status'] == 'APPROVED' else "🔴" if req['status'] == 'DECLINED' else "🟡"
+            updated = req.get('updated_at', req['created_at'])[:16].replace('T', ' ')
+            msg += f"{status_icon} <b>{req['status']}</b> | @{req.get('username', 'N/A')}\nID: <code>{req['tg_id']}</code> | Amt: {req['amount']}\nPID: <code>{req['payment_id']}</code> | Time: {updated}\n━━━━━━━━━━━━━━━━\n"
+            
+        send_msg(ADMIN_BOT_API, chat_id, msg)
+    except Exception as e:
+        send_msg(ADMIN_BOT_API, chat_id, f"❌ Error: {e}")
+    return jsonify({"ok": True})
+
+def handle_search_payment(chat_id, query):
+    try:
+        # Determine if query is ID or Username
+        params = {}
+        if query.isdigit():
+            params["tg_id"] = f"eq.{query}"
+        elif query.startswith("@"):
+            params["username"] = f"ilike.{query[1:]}" # Case insensitive
+        else:
+            # Assume payment ID or username without @
+            url = f"{SUPABASE_URL}/rest/v1/payment_requests?or=(payment_id.eq.{query},username.ilike.{query})&limit=5"
+            r = fast_session.get(url, headers=SB_HEADERS, timeout=10)
+            data = r.json()
+            # If manual query
+            if data:
+                msg = f"🔍 <b>Search Results for: {query}</b>\n\n"
+                for req in data:
+                    status_icon = "🟢" if req['status'] == 'APPROVED' else "🔴" if req['status'] == 'DECLINED' else "🟡"
+                    msg += f"{status_icon} <b>{req['status']}</b> | @{req.get('username', 'N/A')}\nID: <code>{req['tg_id']}</code> | PID: <code>{req['payment_id']}</code>\n"
+                send_msg(ADMIN_BOT_API, chat_id, msg)
+                return jsonify({"ok": True})
+            else:
+                send_msg(ADMIN_BOT_API, chat_id, "❌ No results found.")
+                return jsonify({"ok": True})
+
+        # For direct params
+        r = sb_select("payment_requests", params)
+        if r:
+            msg = f"🔍 <b>Search Results for: {query}</b>\n\n"
+            for req in r:
+                status_icon = "🟢" if req['status'] == 'APPROVED' else "🔴" if req['status'] == 'DECLINED' else "🟡"
+                msg += f"{status_icon} <b>{req['status']}</b>\nID: <code>{req['tg_id']}</code> | @{req.get('username', 'N/A')}\nPID: <code>{req['payment_id']}</code> | Amt: {req['amount']}\nDate: {req['created_at'][:10]}\n\n"
+            send_msg(ADMIN_BOT_API, chat_id, msg)
+        else:
+            send_msg(ADMIN_BOT_API, chat_id, "❌ No results found.")
+            
     except Exception as e:
         send_msg(ADMIN_BOT_API, chat_id, f"❌ Error: {e}")
     return jsonify({"ok": True})
@@ -2261,6 +2479,22 @@ def api_get_tweets(tg_id):
         r = fast_session.get(url, headers=SB_HEADERS, timeout=10)
         r.raise_for_status()
         tweets = r.json()
+        
+        # ✅ FIX 1: Convert UTC to IST before sending to frontend
+        for t in tweets:
+            if t['scheduled_time']:
+                try:
+                    # Parse UTC string from Supabase
+                    utc_dt = datetime.datetime.fromisoformat(t['scheduled_time'].replace('Z', '+00:00')).replace(tzinfo=pytz.utc)
+                    # Convert to IST
+                    ist_dt = utc_dt.astimezone(kolkata_tz)
+                    # Format for human readable display
+                    t['scheduled_time'] = ist_dt.strftime('%Y-%m-%d %I:%M %p')
+                except Exception as e:
+                    print(f"Time conversion error for tweet {t['id']}: {e}")
+                    # If conversion fails, keep original or set error string
+                    pass
+        
         return jsonify(tweets), 200
     except Exception as e:
         print(f"API get tweets failed: {e}")
