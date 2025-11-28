@@ -37,7 +37,7 @@ WEBHOOK_SECRET = "c4a8b97e3c92a6ff12d7f183f5e65bc2"
 MAIN_BOT_TOKEN = "7929052016:AAFO2NoAIrUysVp8asmv_ahpokm6XU0m1YA"
 LINK_BOT_TOKEN = "8155706951:AAHyxvsqR-7RMZMDz2H9F1NbMaljzxca4PY"
 ADMIN_BOT_TOKEN = "8364186351:AAF_yh4m4B-csYVZlBvgr1ajT7s0627EgPQ" # Admin Bot Token
-PUBLIC_BASE_URL = "https://tweet2telegram-nqgw.onrender.co" # ◀️ আপনার আসল URL ব্যবহার করুন
+PUBLIC_BASE_URL = "https://testingx.onrender.com" # ◀️ আপনার আসল URL ব্যবহার করুন
 WEBSITE_URL = "https://bit.ly/flashautomation" # ◀️ ADDED
 
 # ===========================
