@@ -17,7 +17,7 @@ import threading
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 
-# 🚨 REAL API DEPENDENCY
+# 🚨 REAL API DEPENDENCY: requests_oauthlib is required for posting
 try:
     from requests_oauthlib import OAuth1Session
 except ImportError:
@@ -39,33 +39,20 @@ PUBLIC_BASE_URL = "https://testingx.onrender.com"
 WEBSITE_URL = "https://bit.ly/flashautomation"
 
 # ===========================
-# 💳 PAYMENT CONFIGURATION
+# 💳 PAYMENT CONFIGURATION (NEW)
 # ===========================
 PAYMENT_AMOUNT_INR = "520"
 PAYMENT_AMOUNT_USD = "6"
-UPI_ID = "yourname@okaxis"  # ◀️ CHANGE THIS
-CRYPTO_WALLET = "TYourTRC20WalletAddress"  # ◀️ CHANGE THIS
 
-PAYMENT_INSTRUCTIONS = f"""
-💳 <b>Payment & Verify to Access TweetAutomation Bot</b>
+# 🛠️ Payment Details
+UPI_ID_VAL = "yourname@okaxis" 
 
-💰 <b>Amount:</b> ₹{PAYMENT_AMOUNT_INR} (INR) or ${PAYMENT_AMOUNT_USD} (USD)
-
-📱 <b>Payment Methods:</b>
-
-<b>1️⃣ UPI (India):</b>
-   UPI ID: <code>{UPI_ID}</code>
-   
-<b>2️⃣ Crypto (Worldwide):</b>
-   USDT (TRC20): <code>{CRYPTO_WALLET}</code>
-
-<b>📸 After Payment:</b>
-1. Take a screenshot of your payment
-2. Send the screenshot here with Payment ID/UTR as caption
-   Example: Send image with caption "UTR123456789"
-
-⏳ Admin will verify within 1-24 hours.
-"""
+# Crypto Wallets for specific chains
+CRYPTO_WALLETS = {
+    "BSC": "0xYourBSCWalletAddressHere",  # BNB Smart Chain (BEP20)
+    "SOL": "YourSolanaWalletAddressHere", # Solana
+    "TRX": "TYourTRC20WalletAddress"      # Tron (TRC20)
+}
 
 # Supabase Configuration
 SUPABASE_URL = "https://tongguqakjcajxqhxszh.supabase.co"
@@ -79,7 +66,7 @@ SB_HEADERS = {
 }
 SB_HEADERS_UPSERT = {**SB_HEADERS, "Prefer": "return=representation,resolution=merge-duplicates"}
 
-# Super admins
+# Super admins (can manage keys/admins, broadcast, block/unblock)
 ADMIN_IDS = [6535216093]
 ADMIN_CONTACT = "@ox_anonymous"
 
@@ -95,8 +82,8 @@ MAIN_BOT_API = f"https://api.telegram.org/bot{MAIN_BOT_TOKEN}"
 LINK_BOT_API = f"https://api.telegram.org/bot{LINK_BOT_TOKEN}"
 ADMIN_BOT_API = f"https://api.telegram.org/bot{ADMIN_BOT_TOKEN}"
 
-# Config
-MAX_ACCOUNTS_PER_USER = 250 
+# Configuration
+MAX_ACCOUNTS_PER_USER = 250
 MAX_TWEET_LINES = 25
 MAX_MESSAGE_LENGTH = 4000
 MAX_SCHEDULE_DAYS = 365
@@ -111,8 +98,10 @@ API_KEY_STEPS = [
     {"name": "Bearer Token (Optional)", "field": "bearer_token", "prompt": "🪪 (Optional) Enter the **Bearer Token** (or type 'skip')."}
 ]
 
+# ⚡ SPEED OPTIMIZATION: Thread pool for concurrent posting
 posting_executor = ThreadPoolExecutor(max_workers=50)
 
+# ⚡ SPEED OPTIMIZATION: Fast HTTP session
 def create_fast_session():
     session = requests.Session()
     adapter = HTTPAdapter(
@@ -127,9 +116,10 @@ def create_fast_session():
 fast_session = create_fast_session()
 
 # ======================
-# SUPABASE HELPERS
+# 🚀 SUPABASE HELPERS
 # ======================
 def sb_select(table, params, single=False, select="*"):
+    """Generic Supabase SELECT"""
     try:
         url = f"{SUPABASE_URL}/rest/v1/{table}?select={select}"
         for key, value in params.items():
@@ -153,6 +143,7 @@ def sb_select(table, params, single=False, select="*"):
         return None if single else []
 
 def sb_insert(table, data):
+    """Generic Supabase INSERT"""
     try:
         url = f"{SUPABASE_URL}/rest/v1/{table}"
         r = fast_session.post(url, headers=SB_HEADERS, json=data, timeout=10)
@@ -163,6 +154,7 @@ def sb_insert(table, data):
         return None
 
 def sb_update(table, data, params):
+    """Generic Supabase UPDATE"""
     try:
         url = f"{SUPABASE_URL}/rest/v1/{table}?"
         param_list = []
@@ -178,6 +170,7 @@ def sb_update(table, data, params):
         return False
 
 def sb_upsert(table, data_list, on_conflict=None):
+    """Generic Supabase UPSERT"""
     try:
         url = f"{SUPABASE_URL}/rest/v1/{table}"
         headers = SB_HEADERS_UPSERT
@@ -193,6 +186,7 @@ def sb_upsert(table, data_list, on_conflict=None):
         return None
 
 def sb_delete(table, params):
+    """Generic Supabase DELETE"""
     try:
         url = f"{SUPABASE_URL}/rest/v1/{table}?"
         query_params = []
@@ -212,7 +206,7 @@ def sb_delete(table, params):
                 count = int(content_range.split('/')[-1])
             else:
                 count = 0
-        except:
+        except (ValueError, IndexError):
             count = 0
         return count
     except Exception as e:
@@ -241,12 +235,14 @@ def save_payment_request(uid, username, payment_method, file_id, payment_id, amo
         return False
 
 def is_user_authorized(uid):
+    """Checks if user is a Super Admin or has an APPROVED payment request"""
     try:
         if is_super_admin(uid):
             return True
+        # Check if user has an approved payment
         row = sb_select("payment_requests", 
-                       {"tg_id": uid, "status": "APPROVED"}, 
-                       single=True, select="id")
+                        {"tg_id": uid, "status": "APPROVED"}, 
+                        single=True, select="id")
         return row is not None
     except Exception as e:
         print(f"Authorization check error: {e}")
@@ -354,12 +350,17 @@ def parse_indian_datetime(text: str) -> datetime.datetime or None:
         if dt > now and dt < max_dt:
             return dt.astimezone(pytz.utc).replace(microsecond=0)
     except Exception as e:
+        print(f"Parse datetime error: {e}")
         pass
     return None
 
+# --- Supabase API Functions ---
+
 def sb_upsert_account(uid: int, keys: dict) -> bool:
     username = keys.get("username", "").strip().lower()
-    if not username: return False
+    if not username:
+        print("❌ Username is empty!")
+        return False
     payload = {
         "tg_id": uid,
         "username": username,
@@ -369,12 +370,19 @@ def sb_upsert_account(uid: int, keys: dict) -> bool:
         "access_token_secret": keys.get("access_token_secret", ""),
         "bearer_token": keys.get("bearer_token")
     }
+    print(f"🔍 SUPABASE UPSERT ATTEMPT: User {uid} -> @{username}")
     try:
         url = f"{SUPABASE_URL}/rest/v1/{SB_TABLE_ACCOUNTS}"
         headers = {**SB_HEADERS, "Prefer": "return=representation,resolution=merge-duplicates,on_conflict=tg_id,username"}
         r = fast_session.post(url, headers=headers, json=payload, timeout=10)
-        return r.status_code in (200, 201)
-    except:
+        if r.status_code in (200, 201):
+            print(f"✅ SUCCESS! Account @{username} linked")
+            return True
+        else:
+            print(f"❌ FAILED! Status: {r.status_code}, Body: {r.text}")
+            return False
+    except Exception as e:
+        print(f"💥 EXCEPTION in upsert_account: {e}")
         return False
 
 def sb_list_accounts(uid: int):
@@ -383,7 +391,8 @@ def sb_list_accounts(uid: int):
         r = fast_session.get(url, headers=SB_HEADERS, timeout=10)
         if r.status_code == 200:
             return r.json()
-    except: pass
+    except Exception as e:
+        print(f"Supabase list exception: {e}")
     return []
 
 def sb_delete_account(uid: int, username: str) -> bool:
@@ -392,7 +401,8 @@ def sb_delete_account(uid: int, username: str) -> bool:
         r = fast_session.delete(url, headers=SB_HEADERS, timeout=10)
         if r.status_code in (200, 204):
             return True
-    except: pass
+    except Exception as e:
+        print(f"Supabase delete exception: {e}")
     return False
 
 def get_user_x_accounts(uid: int):
@@ -408,31 +418,52 @@ def get_unscheduled_tweets(uid: int):
         r = fast_session.get(url, headers=SB_HEADERS, timeout=10)
         r.raise_for_status()
         return r.json()
-    except:
+    except Exception as e:
+        print(f"Supabase get_unscheduled_tweets error: {e}")
         return []
 
 def post_tweet_to_x(tweet_id, user_id, account_username, tweet_text):
     accounts = get_user_x_accounts(user_id)  
     keys = next((acc for acc in accounts if acc['username'] == account_username), None)
-    if not keys: return None, "Account credentials missing."
+    if not keys or not keys['api_key'] or not keys['access_token']:
+        return None, "Account credentials missing or incomplete."
+
     url = "https://api.twitter.com/2/tweets"
     auth = OAuth1Session(
-        keys['api_key'], client_secret=keys['api_secret'],
-        resource_owner_key=keys['access_token'], resource_owner_secret=keys['access_token_secret']
+        keys['api_key'],
+        client_secret=keys['api_secret'],
+        resource_owner_key=keys['access_token'],
+        resource_owner_secret=keys['access_token_secret']
     )
     payload = {"text": tweet_text}
+    
     try:
         response = auth.post(url, json=payload, timeout=10)
         if response.status_code == 201:
             data = response.json()
             tweet_id_str = data.get('data', {}).get('id')
             if tweet_id_str:
-                return f"https://x.com/{account_username}/status/{tweet_id_str}?t=19", None
-            return None, "Tweet posted but ID not found"
+                tweet_link = f"https://x.com/{account_username}/status/{tweet_id_str}?t=19"
+                return tweet_link, None
+            else:
+                return None, "Tweet posted but ID not found"
         else:
-            return None, f'HTTP Error {response.status_code}'
+            error_message = f'HTTP Error {response.status_code}'
+            try:
+                error_json = response.json()
+                if 'errors' in error_json and error_json['errors']:
+                    error_message = error_json['errors'][0].get('message', error_message)
+                elif 'detail' in error_json:
+                    error_message = error_json['detail']
+            except: pass
+            
+            if response.status_code == 429:
+                error_message = "Rate limit exceeded (17/day Free tier)."
+            return None, error_message
+            
     except Exception as e:
-        return None, f"Connection Error: {e}"
+        return None, f"Connection/Library Error: {e}"
+
 
 # ==========================
 # MAIN BOT: COMMAND HANDLER 
@@ -440,11 +471,62 @@ def post_tweet_to_x(tweet_id, user_id, account_username, tweet_text):
 def main_bot_handle(update):
     chat_id = None
     try:
+        # ==========================
+        # 🟢 CALLBACK QUERY HANDLER
+        # ==========================
         if "callback_query" in update:
             cb = update["callback_query"]
             chat_id = cb["message"]["chat"]["id"]
             uid = cb["from"]["id"]
             data = cb["data"]
+            
+            # --- Payment Selection Logic ---
+            if data == "pay_upi":
+                msg = (
+                    f"💳 <b>UPI Payment (India)</b>\n\n"
+                    f"💰 Amount: <b>₹{PAYMENT_AMOUNT_INR}</b>\n"
+                    f"🆔 UPI ID: <code>{UPI_ID_VAL}</code>\n\n"
+                    f"1. Send money to the UPI ID above.\n"
+                    f"2. Take a screenshot.\n"
+                    f"3. Send the screenshot here with your <b>UTR/Transaction ID</b> as caption."
+                )
+                set_state(uid, "main", "waiting_payment_proof", data={"method": "UPI"})
+                fast_session.post(f"{MAIN_BOT_API}/answerCallbackQuery", json={"callback_query_id": cb["id"]})
+                send_msg(MAIN_BOT_API, chat_id, msg)
+                return jsonify({"ok": True})
+
+            elif data == "pay_crypto":
+                networks_markup = {
+                    "inline_keyboard": [
+                        [{"text": "🔶 BSC (BEP20)", "callback_data": "net_bsc"}],
+                        [{"text": "🟣 SOLANA", "callback_data": "net_sol"}],
+                        [{"text": "🔴 TRON (TRC20)", "callback_data": "net_trx"}]
+                    ]
+                }
+                fast_session.post(f"{MAIN_BOT_API}/answerCallbackQuery", json={"callback_query_id": cb["id"]})
+                send_msg(MAIN_BOT_API, chat_id, "⛓️ <b>Select Network Chain:</b>", reply_markup=networks_markup)
+                return jsonify({"ok": True})
+
+            elif data.startswith("net_"):
+                chain = data.split("_")[1].upper() # BSC, SOL, or TRX
+                wallet = CRYPTO_WALLETS.get(chain, "Contact Admin")
+                
+                msg = (
+                    f"🪙 <b>CRYPTO Payment ({chain})</b>\n\n"
+                    f"💰 Amount: <b>${PAYMENT_AMOUNT_USD} USDT</b>\n"
+                    f"⛓️ Network: <b>{chain}</b>\n"
+                    f"👛 Address:\n<code>{wallet}</code>\n\n"
+                    f"1. Send exactly ${PAYMENT_AMOUNT_USD}.\n"
+                    f"2. Take a screenshot.\n"
+                    f"3. Send the screenshot here with your <b>Transaction Hash (TxID)</b> as caption."
+                )
+                
+                set_state(uid, "main", "waiting_payment_proof", data={"method": "CRYPTO", "chain": chain})
+                fast_session.post(f"{MAIN_BOT_API}/answerCallbackQuery", json={"callback_query_id": cb["id"]})
+                send_msg(MAIN_BOT_API, chat_id, msg)
+                return jsonify({"ok": True})
+            
+            # --- Existing Flow Logic ---
             scope, state, flow_data = get_state(uid)
             if state == "schedule_flow_ampm":
                 return main_bot_flow_continue(uid, chat_id, data, state, flow_data, is_callback=True, callback_update=update)
@@ -475,30 +557,34 @@ def main_bot_handle(update):
             caption = msg.get("caption", "").strip()
             
             if not photo:
-                send_msg(MAIN_BOT_API, chat_id, "❌ Please send a <b>screenshot</b> of your payment.\nAdd your Payment ID/UTR as caption.\nExample: Send image with caption <code>UTR123456789</code>")
+                send_msg(MAIN_BOT_API, chat_id, "❌ Please send a <b>screenshot</b> of your payment, not text.")
                 return jsonify({"ok": True})
             
             if not caption or len(caption) < 4:
-                send_msg(MAIN_BOT_API, chat_id, "❌ Please add a <b>caption</b> with your Payment ID/UTR.\nExample: Send image with caption <code>UTR123456789</code>")
+                send_msg(MAIN_BOT_API, chat_id, "❌ Please add a <b>caption</b> with your Payment ID/UTR/TxID.\n\nType the ID in the 'Add a caption...' field when sending the image.")
                 return jsonify({"ok": True})
             
             file_id = photo[-1]["file_id"]
-            payment_id = caption.split()[0]
-            payment_method = "UPI" if "utr" in caption.lower() or "upi" in caption.lower() else "CRYPTO"
-            amount = f"₹{PAYMENT_AMOUNT_INR}" if payment_method == "UPI" else f"${PAYMENT_AMOUNT_USD}"
+            payment_id = caption.split()[0] # Take first word as ID
+            
+            method_type = flow_data.get("method", "UNKNOWN")
+            chain_info = flow_data.get("chain", "")
+            
+            full_method_str = f"{method_type} ({chain_info})" if chain_info else method_type
+            amount = f"₹{PAYMENT_AMOUNT_INR}" if method_type == "UPI" else f"${PAYMENT_AMOUNT_USD}"
             username = from_user.get("username", "No Username")
             
-            saved = save_payment_request(uid, username, payment_method, file_id, payment_id, amount)
+            saved = save_payment_request(uid, username, full_method_str, file_id, payment_id, amount)
             
             if not saved:
                 send_msg(MAIN_BOT_API, chat_id, "❌ Failed to save payment request. Please try again.")
                 return jsonify({"ok": True})
             
             clear_state(uid)
-            send_msg(MAIN_BOT_API, chat_id, f"✅ <b>Payment Request Submitted!</b>\n\nPayment ID: <code>{payment_id}</code>\nMethod: {payment_method}\nAmount: {amount}\n\n⏳ Admin will verify within 1-24 hours.")
+            send_msg(MAIN_BOT_API, chat_id, f"✅ <b>Payment Request Submitted!</b>\n\nPayment ID: <code>{payment_id}</code>\nMethod: {full_method_str}\nAmount: {amount}\n\n⏳ Admin will verify within 1-24 hours.")
             
-            # Notify admin
-            admin_msg = f"🔔 <b>NEW PAYMENT REQUEST</b>\nUser: @{username} (ID: <code>{uid}</code>)\nPayment ID: <code>{payment_id}</code>\nMethod: {payment_method}\nAmount: {amount}\n\n<b>Commands:</b>\nReply: <code>/approve {uid}</code>\nOr: <code>/decline {uid} reason</code>"
+            # Notify admin with photo
+            admin_msg = f"🔔 <b>NEW PAYMENT REQUEST</b>\nUser: @{username} (ID: <code>{uid}</code>)\nPayment ID: <code>{payment_id}</code>\nMethod: {full_method_str}\nAmount: {amount}\n\n<b>Commands:</b>\nReply: <code>/approve {uid}</code>\nOr: <code>/decline {uid} reason</code>"
             try:
                 fast_session.post(f"{MAIN_BOT_API}/sendPhoto", json={"chat_id": ADMIN_IDS[0], "photo": file_id, "caption": admin_msg, "parse_mode": "HTML"}, timeout=10)
             except:
@@ -521,7 +607,7 @@ def main_bot_handle(update):
             start_text = f"👋 Welcome, <b>{first_name}</b>! This is the <b>Tweet ➜ Telegram Automation Main Bot</b>!\n\n🌐 <b>Website Dashboard:</b> {WEBSITE_URL}\n\n"
             
             if not is_user_authorized(uid):
-                start_text += f"⚠️ <b>Access Required</b>\n\n💳 <b>Price:</b> ₹{PAYMENT_AMOUNT_INR} or ${PAYMENT_AMOUNT_USD}\n\nUse <b>/connect</b> to see payment details."
+                start_text += f"⚠️ <b>Access Required</b>\n\n💳 <b>Price:</b> ₹{PAYMENT_AMOUNT_INR} or ${PAYMENT_AMOUNT_USD}\n\nUse <b>/connect</b> to access services."
             else:
                 start_text += "✅ <b>You are authorized!</b>\n\nUse <b>/help</b> to see all commands."
             
@@ -535,6 +621,9 @@ def main_bot_handle(update):
             send_msg(MAIN_BOT_API, chat_id, base)
             return jsonify({"ok": True})
 
+        # ===========================
+        # 🟢 CONNECT COMMAND
+        # ===========================
         if cmd == "/connect":
             if is_user_authorized(uid):
                 send_msg(MAIN_BOT_API, chat_id, "✅ You are already authorized! Use <b>/help</b> for commands.")
@@ -542,12 +631,24 @@ def main_bot_handle(update):
             
             existing = sb_select("payment_requests", {"tg_id": uid, "status": "PENDING"}, single=True, select="id,payment_id,created_at")
             if existing:
-                time_ago = existing.get('created_at', '')[:16]
+                time_ago = existing.get('created_at', '')[:16].replace('T', ' ')
                 send_msg(MAIN_BOT_API, chat_id, f"⏳ <b>Payment Verification Pending</b>\n\nPayment ID: <code>{existing.get('payment_id', 'N/A')}</code>\nSubmitted: {time_ago}\n\nAdmin will verify soon.")
                 return jsonify({"ok": True})
             
-            set_state(uid, "main", "waiting_payment_proof", data={})
-            send_msg(MAIN_BOT_API, chat_id, PAYMENT_INSTRUCTIONS)
+            payment_markup = {
+                "inline_keyboard": [
+                    [{"text": "🇮🇳 UPI {India}", "callback_data": "pay_upi"}],
+                    [{"text": "🌍 CRYPTO_USDT {Worldwide}", "callback_data": "pay_crypto"}]
+                ]
+            }
+            msg = (
+                "💳 <b>Access to Premium Services</b>\n\n"
+                f"To use this bot, a one-time payment is required.\n"
+                f"<b>Price:</b> ₹{PAYMENT_AMOUNT_INR} (INR) / ${PAYMENT_AMOUNT_USD} (USD)\n\n"
+                "👇 <b>Select your payment method:</b>"
+            )
+            set_state(uid, "main", "waiting_payment_method", data={})
+            send_msg(MAIN_BOT_API, chat_id, msg, reply_markup=payment_markup)
             return jsonify({"ok": True})
         
         if cmd == "/cancel":
@@ -560,7 +661,7 @@ def main_bot_handle(update):
             return jsonify({"ok": True})
         
         if cmd and not is_user_authorized(uid) and (cmd in AUTH_COMMANDS):
-            send_msg(MAIN_BOT_API, chat_id, f"🚫 You are not authorized.\n\n💳 Use <b>/connect</b> to make payment (₹{PAYMENT_AMOUNT_INR} or ${PAYMENT_AMOUNT_USD})")
+            send_msg(MAIN_BOT_API, chat_id, f"🚫 You are not authorized.\n\n💳 Use <b>/connect</b> to access services.")
             return jsonify({"ok": True})
 
         if is_user_authorized(uid):
@@ -585,7 +686,9 @@ def main_bot_handle(update):
 
 def main_bot_flow_continue(uid, chat_id, text, state, flow_data, is_callback=False, callback_update=None):
     if state == "waiting_payment_proof":
-        return handle_payment_proof_submission(uid, chat_id, text, flow_data) 
+        send_msg(MAIN_BOT_API, chat_id, "❌ Please send a <b>screenshot</b> of the payment, not text.")
+        return jsonify({"ok": True})
+        
     if state == "schedule_flow_date":
         return handle_schedule_flow_date(uid, chat_id, text)
     if state == "schedule_flow_time":
@@ -607,15 +710,6 @@ def main_bot_flow_continue(uid, chat_id, text, state, flow_data, is_callback=Fal
 
     clear_state(uid)
     send_msg(MAIN_BOT_API, chat_id, "⚠️ Flow reset. Please send the command again.")
-    return jsonify({"ok": True})
-
-# ===========================
-# 💳 PAYMENT PROOF SUBMISSION
-# ===========================
-def handle_payment_proof_submission(uid, chat_id, text, flow_data):
-    # This function is logically handled inside main_bot_handle where 'msg' object is available
-    # to extract photos. If execution reaches here with text, it means user sent text instead of photo.
-    send_msg(MAIN_BOT_API, chat_id, "❌ Please send a <b>photo/screenshot</b> of the payment, not text.")
     return jsonify({"ok": True})
 
 def handle_add_account_start(uid, chat_id):
@@ -1013,7 +1107,7 @@ def admin_bot_flow_continue(uid, chat_id, text, state, flow_data):
     return jsonify({"ok": True})
 
 # ===========================
-# 👑 ADMIN: PAYMENT MANAGEMENT & EXTRAS
+# 👑 ADMIN: PAYMENT MANAGEMENT
 # ===========================
 def handle_pending_payments(chat_id):
     try:
@@ -1219,36 +1313,54 @@ def link_bot_try_connect(uid, chat_id, key_or_text):
 #  SCHEDULER & THREADING
 # ============================
 def post_single_tweet_task(tweet):
+    """Single tweet posting task (runs in separate thread)"""
     tweet_id = tweet['id']
     tg_id = tweet['tg_id']
     tweet_text = tweet['tweet_text']
     account_username = tweet['account_username']
     
+    print(f"📤 [Thread {threading.current_thread().name}] Processing ID:{tweet_id} → @{account_username}")
+    
     if is_blocked(tg_id):
+        print(f"    ⚠️ SKIPPED (user blocked)")
         return (tweet_id, False, None, "User blocked", tg_id, account_username)
     
     sb_update("scheduled_tweets", {"post_status": "PROCESSING"}, {"id": tweet_id})
     post_link, error = post_tweet_to_x(tweet_id, tg_id, account_username, tweet_text)
     
     if post_link:
+        print(f"    ✅ SUCCESS: {post_link}")
         return (tweet_id, True, post_link, None, tg_id, account_username)
     else:
+        print(f"    ❌ FAILED: {error}")
         return (tweet_id, False, None, error, tg_id, account_username)
 
 def check_and_post_scheduled_tweets():
+    """Posts all scheduled tweets that are due now."""
     now_utc_for_check = datetime.datetime.now(pytz.utc).replace(microsecond=0)
     now_iso = now_utc_for_check.strftime('%Y-%m-%dT%H:%M:%S')
+    
+    print(f"\n{'='*70}")
+    print(f"🕐 SCHEDULER RUN (CONCURRENT MODE)")
+    print(f"    UTC Time: {now_iso}")
+    print(f"{'='*70}")
     
     try:
         encoded_time = quote(now_iso, safe='')
         url = f"{SUPABASE_URL}/rest/v1/scheduled_tweets?select=id,tg_id,tweet_text,account_username,scheduled_time&post_status=eq.PENDING&scheduled_time=lte.{encoded_time}&order=scheduled_time.asc"
         r = fast_session.get(url, headers=SB_HEADERS, timeout=10)
         tweets_to_post = r.json()
+        print(f"✅ Found {len(tweets_to_post)} tweets ready to post")
         if not tweets_to_post: return 0
-    except: return 0
+    except Exception as e:
+        print(f"❌ Fetch failed: {e}")
+        return 0
 
     posted_count = 0
     futures = []
+    
+    print(f"\n⚡ MAXIMUM SPEED MODE: Posting {len(tweets_to_post)} tweets with {min(len(tweets_to_post), 50)} parallel threads...\n")
+    
     for tweet in tweets_to_post:
         futures.append(posting_executor.submit(post_single_tweet_task, tweet))
     
@@ -1268,7 +1380,10 @@ def check_and_post_scheduled_tweets():
                 sb_update("scheduled_tweets", {"post_status": "FAILED"}, {"id": tweet_id})
                 if error != "User blocked":
                     send_msg(MAIN_BOT_API, tg_id, f"❌ <b>Tweet Failed</b>\nAccount: @{account_username}\nError: {error}")
-        except: pass
+        except Exception as e:
+            print(f"❌ Error processing result: {e}")
+            
+    print(f"\n{'='*70}\n")
     return posted_count
 
 # ============================
@@ -1312,7 +1427,9 @@ def validate_web_access(func):
             if is_blocked(tg_id): return jsonify({"status": "error", "message": "User is blocked."}), 401
             kwargs['tg_id'] = tg_id
             return func(*args, **kwargs)
-        except: return jsonify({"status": "error", "message": "Internal error"}), 500
+        except Exception as e:
+            print(f"Web access validation error: {e}")
+            return jsonify({"status": "error", "message": "Internal error"}), 500
     wrapper.__name__ = func.__name__
     return wrapper
 
@@ -1332,7 +1449,9 @@ def api_signup():
         sb_insert("web_users", { "email": email, "password_hash": hash_password(password), "tg_id": tg_id, "created_at": now_utc_iso() })
         send_msg(MAIN_BOT_API, tg_id, "✅ **Web Account Linked!** You can now log in.")
         return jsonify({"status": "ok", "message": "Sign up successful."}), 201
-    except: return jsonify({"status": "error", "message": "DB error"}), 500
+    except Exception as e:
+        print(f"API signup failed: {e}")
+        return jsonify({"status": "error", "message": "DB error"}), 500
 
 @app.route("/api/login", methods=["POST"])
 def api_login():
@@ -1348,7 +1467,9 @@ def api_login():
         expires_at = datetime.datetime.now(pytz.utc) + datetime.timedelta(days=7)
         sb_upsert("web_keys", [{ "key": web_key, "tg_id": tg_id, "created_at": now_utc_iso(), "expires_at": expires_at.isoformat() }], on_conflict="key")
         return jsonify({"status": "ok", "tg_id": tg_id, "access_key": web_key}), 200
-    except: return jsonify({"status": "error", "message": "Server error"}), 500
+    except Exception as e:
+        print(f"API login failed: {e}")
+        return jsonify({"status": "error", "message": "Server error"}), 500
 
 @app.route("/api/forgot_password", methods=["POST"])
 def api_forgot_password():
@@ -1365,7 +1486,9 @@ def api_forgot_password():
         send_msg(ADMIN_BOT_API, ADMIN_IDS[0], f"🔔 **PASSWORD RESET REQUEST**\nEmail: {email}\nCode: <code>{reset_code}</code>\nManually email this code to user.")
         send_msg(MAIN_BOT_API, target_tg_id, f"🔑 **Password Reset**\nRequest received for {email}. Admin will email the code shortly.")
         return jsonify({"status": "ok", "message": "Admin notified."}), 200
-    except: return jsonify({"status": "error", "message": "Error"}), 500
+    except Exception as e:
+        print(f"API forgot password failed: {e}")
+        return jsonify({"status": "error", "message": "Error"}), 500
 
 @app.route("/api/verify_forgot_code", methods=["POST"])
 def api_verify_forgot_code():
@@ -1375,8 +1498,13 @@ def api_verify_forgot_code():
     try:
         row = sb_select("forgot_password_codes", {"email": email, "code": code}, single=True, select="expires_at")
         if not row: return jsonify({"status": "error", "message": "Invalid code"}), 401
+        expires = datetime.datetime.fromisoformat(row["expires_at"]).replace(tzinfo=pytz.utc)
+        if expires < datetime.datetime.now(pytz.utc):
+            sb_delete("forgot_password_codes", {"email": email})
+            return jsonify({"status": "error", "message": "Code expired."}), 401
         return jsonify({"status": "ok", "message": "Verified"}), 200
-    except: return jsonify({"status": "error", "message": "Error"}), 500
+    except Exception as e:
+        return jsonify({"status": "error", "message": "Error"}), 500
 
 @app.route("/api/reset_password", methods=["POST"])
 def api_reset_password():
@@ -1391,7 +1519,8 @@ def api_reset_password():
         sb_delete("forgot_password_codes", {"email": email})
         send_msg(MAIN_BOT_API, row['tg_id'], "✅ Password updated.")
         return jsonify({"status": "ok", "message": "Password reset"}), 200
-    except: return jsonify({"status": "error", "message": "Error"}), 500
+    except Exception as e:
+        return jsonify({"status": "error", "message": "Error"}), 500
 
 @app.route("/api/verify_key", methods=["GET", "POST"])
 def api_verify_key():
@@ -1408,6 +1537,15 @@ def api_verify_key():
 @app.route("/api/get_accounts", methods=["GET"])
 @validate_web_access
 def api_get_accounts(tg_id): return jsonify(get_user_x_accounts(tg_id)), 200
+
+# ◀️ RESTORED: Get single account details for editing
+@app.route("/api/get_account_details/<string:username>", methods=["GET"])
+@validate_web_access
+def api_get_account_details(tg_id, username):
+    accounts = get_user_x_accounts(tg_id)
+    account = next((acc for acc in accounts if acc['username'].lower() == username.lower()), None)
+    if account: return jsonify(account), 200
+    else: return jsonify({"status": "error", "message": "Account not found or not owned by user"}), 404
 
 @app.route("/api/update_account", methods=["POST"])
 @validate_web_access
@@ -1433,6 +1571,77 @@ def api_delete_tweet(tg_id):
     if sb_delete("scheduled_tweets", {"id": tweet_id, "tg_id": tg_id, "post_status": "neq.POSTED"}):
         return jsonify({"status": "ok", "message": "Deleted"}), 200
     return jsonify({"status": "error", "message": "Failed"}), 404
+
+# ◀️ RESTORED: Delete ALL tweets
+@app.route("/api/delete_all_tweets", methods=["POST"])
+@validate_web_access
+def api_delete_all_tweets(tg_id):
+    try:
+        delete_params = { "tg_id": tg_id, "post_status": "neq.POSTED" }
+        deleted_count = sb_delete("scheduled_tweets", delete_params)
+        return jsonify({"status": "ok", "message": f"Deleted {deleted_count} tweets."}), 200
+    except Exception as e:
+        print(f"API delete all tweets failed: {e}")
+        return jsonify({"status": "error", "message": "Database error"}), 500
+
+# ◀️ RESTORED: Post ALL tweets instantly
+@app.route("/api/post_all_tweets_now", methods=["POST"])
+@validate_web_access
+def api_post_all_tweets_now(tg_id):
+    tweets = get_unscheduled_tweets(tg_id)
+    accounts = get_user_x_accounts(tg_id)
+
+    if not tweets: return jsonify({"status": "error", "message": "No pending tweets found."}), 400
+    if not accounts: return jsonify({"status": "error", "message": "No linked accounts found."}), 400
+
+    if len(accounts) > 250: accounts = accounts[:250]
+
+    count_to_post = min(len(tweets), len(accounts))
+    tweets_to_post = tweets[:count_to_post]
+    tweets_to_delete = tweets[count_to_post:]
+
+    print(f"\n⚡ INSTANT POST: User {tg_id} posting {count_to_post} tweets concurrently...")
+
+    futures = []
+    for i in range(count_to_post):
+        tweet_data = tweets_to_post[i]
+        account_data = accounts[i]
+        task_payload = {
+            "id": tweet_data['id'], "tg_id": tg_id,
+            "tweet_text": tweet_data['tweet_text'], "account_username": account_data['username']
+        }
+        futures.append(posting_executor.submit(post_single_tweet_task, task_payload))
+
+    posted_count = 0
+    failed_count = 0
+    
+    link_bot_chat_ids = []
+    try:
+        url = f"{SUPABASE_URL}/rest/v1/user_link_bot_connections?select=link_bot_chat_id&main_bot_tg_id=eq.{tg_id}&link_bot_chat_id=not.is.null"
+        r = fast_session.get(url, headers=SB_HEADERS, timeout=5)
+        if r.status_code == 200: link_bot_chat_ids = [row.get('link_bot_chat_id') for row in r.json() if row.get('link_bot_chat_id')]
+    except: pass
+
+    for future in as_completed(futures):
+         tweet_id, success, post_link, error, uid, username = future.result()
+         if success:
+             posted_count += 1
+             sb_update("scheduled_tweets", {"post_status": "POSTED", "post_link": post_link, "account_username": username, "scheduled_time": now_utc_iso()}, {"id": tweet_id})
+             for chat_id in link_bot_chat_ids: send_msg(LINK_BOT_API, chat_id, post_link)
+         else:
+             failed_count += 1
+             sb_update("scheduled_tweets", {"post_status": "FAILED", "account_username": username}, {"id": tweet_id})
+
+    deleted_count = 0
+    if tweets_to_delete:
+        ids_to_delete = [t['id'] for t in tweets_to_delete]
+        ids_param = f"in.({','.join(map(str, ids_to_delete))})"
+        deleted_count = sb_delete("scheduled_tweets", {"id": ids_param, "tg_id": tg_id, "post_status": "PENDING"})
+
+    summary_msg = f"⚡ <b>Instant Post Summary</b>\n\n✅ Posted: {posted_count}\n❌ Failed: {failed_count}\n🗑️ Deleted Extras: {deleted_count}"
+    send_msg(MAIN_BOT_API, tg_id, summary_msg)
+
+    return jsonify({ "status": "ok", "message": "Instant post complete.", "posted": posted_count, "failed": failed_count, "deleted": deleted_count })
 
 @app.route("/api/schedule_tweets", methods=["POST"])
 @validate_web_access
@@ -1473,6 +1682,14 @@ def serve_index(): return send_file("index.html")
 def serve_manifest(): return send_file("manifest.json")
 @app.route("/sw.js")
 def serve_sw(): return send_file("sw.js")
+@app.route("/icon.svg")
+def serve_icon(): return send_file("icon.svg")
+@app.route("/icon-192.png")
+def serve_icon_192(): return send_file("icon-192.png", mimetype="image/png")
+@app.route("/icon-512.png")
+def serve_icon_512(): return send_file("icon-512.png", mimetype="image/png")
+@app.route("/icon-1024.png")
+def serve_icon_1024(): return send_file("icon-1024.png", mimetype="image/png")
 
 if __name__ == "__main__":
     setup_webhooks()
