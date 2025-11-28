@@ -33,11 +33,11 @@ except ImportError:
 # ==============================
 # 🔒 HARDCODED SECRETS & CONFIG
 # ==============================
-WEBHOOK_SECRET = "c4a8b97e3c92a6ff12d7f183f5e65bc1"
-MAIN_BOT_TOKEN = "8428126884:AAEjbdgawLFrNqrxTsMS95MfMH0LouDJbYw"
-LINK_BOT_TOKEN = "8196170842:AAHf85B9JPC8ARw2p4Ax0mkRZ0UdU1nyb3s"
-ADMIN_BOT_TOKEN = "8272656277:AAEUXGW5MMWwgWuk7W388ntIXFS0nEGniZ8" # Admin Bot Token
-PUBLIC_BASE_URL = "https://tweet2telegram-nqgw.onrender.com" # ◀️ আপনার আসল URL ব্যবহার করুন
+WEBHOOK_SECRET = "c4a8b97e3c92a6ff12d7f183f5e65bc2"
+MAIN_BOT_TOKEN = "7929052016:AAFO2NoAIrUysVp8asmv_ahpokm6XU0m1YA"
+LINK_BOT_TOKEN = "8155706951:AAHyxvsqR-7RMZMDz2H9F1NbMaljzxca4PY"
+ADMIN_BOT_TOKEN = "8364186351:AAF_yh4m4B-csYVZlBvgr1ajT7s0627EgPQ" # Admin Bot Token
+PUBLIC_BASE_URL = "https://tweet2telegram-nqgw.onrender.co" # ◀️ আপনার আসল URL ব্যবহার করুন
 WEBSITE_URL = "https://bit.ly/flashautomation" # ◀️ ADDED
 
 # ===========================
@@ -70,8 +70,8 @@ PAYMENT_INSTRUCTIONS = f"""
 """
 
 # Supabase Configuration (PRIMARY for ALL data)
-SUPABASE_URL = "https://xebasaxioqlbnrzkmyjh.supabase.co"
-SUPABASE_API_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InhlYmFzYXhpb3FsYm5yemtteWpoIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc2MzEzMjk3OCwiZXhwIjoyMDc4NzA4OTc4fQ.n2tGsrKODd6Dp7OtbsE3xOQ_wPtdU4QHLaBqtT7tcRA"
+SUPABASE_URL = "https://tongguqakjcajxqhxszh.supabase.co"
+SUPABASE_API_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRvbmdndXFha2pjYWp4cWh4c3poIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc2NDMyOTYxOSwiZXhwIjoyMDc5OTA1NjE5fQ.fT8lhXtwnIZFbdV-wuYp2pcXXHhteyAkVlnEpRpBMBo"
 SB_TABLE_ACCOUNTS = "user_x_accounts" # This was already in Supabase
 SB_HEADERS = {
     "apikey": SUPABASE_API_KEY,
