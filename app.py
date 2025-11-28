@@ -60,6 +60,8 @@ CRYPTO_WALLETS = {
 SUPABASE_URL = "https://tongguqakjcajxqhxszh.supabase.co"
 SUPABASE_API_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRvbmdndXFha2pjYWp4cWh4c3poIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc2NDMyOTYxOSwiZXhwIjoyMDc5OTA1NjE5fQ.fT8lhXtwnIZFbdV-wuYp2pcXXHhteyAkVlnEpRpBMBo"
 SB_TABLE_ACCOUNTS = "user_x_accounts"
+SB_BUCKET_NAME = "payment-proofs" # 🆕 Bucket Name
+
 SB_HEADERS = {
     "apikey": SUPABASE_API_KEY,
     "Authorization": f"Bearer {SUPABASE_API_KEY}",
@@ -235,15 +237,66 @@ def tz_now_str():
     return datetime.datetime.now(kolkata_tz).strftime("%Y-%m-%d %I:%M:%S %p %Z")
 
 # ===========================
-# 💳 PAYMENT HELPERS
+# 💳 PAYMENT HELPERS & STORAGE
 # ===========================
-def save_payment_request(uid, username, payment_method, file_id, payment_id, amount):
+
+def download_telegram_photo(file_id):
+    """Downloads photo from Telegram servers"""
+    try:
+        # Get file path
+        url = f"{MAIN_BOT_API}/getFile?file_id={file_id}"
+        r = fast_session.get(url, timeout=10)
+        res = r.json()
+        if not res.get("ok"):
+            print(f"TG GetFile Error: {res}")
+            return None, None
+        
+        file_path = res["result"]["file_path"]
+        file_ext = file_path.split('.')[-1] if '.' in file_path else "jpg"
+        
+        # Download content
+        download_url = f"https://api.telegram.org/file/bot{MAIN_BOT_TOKEN}/{file_path}"
+        r_content = fast_session.get(download_url, timeout=20)
+        
+        if r_content.status_code == 200:
+            return r_content.content, file_ext
+        return None, None
+    except Exception as e:
+        print(f"Photo download error: {e}")
+        return None, None
+
+def upload_to_supabase_storage(file_bytes, file_ext):
+    """Uploads bytes to Supabase Storage and returns Public URL"""
+    try:
+        filename = f"proof_{uuid.uuid4().hex}.{file_ext}"
+        
+        url = f"{SUPABASE_URL}/storage/v1/object/{SB_BUCKET_NAME}/{filename}"
+        headers = {
+            "Authorization": f"Bearer {SUPABASE_API_KEY}",
+            "Content-Type": f"image/{file_ext}"
+        }
+        
+        r = fast_session.post(url, headers=headers, data=file_bytes, timeout=20)
+        
+        if r.status_code in [200, 201]: 
+            # Construct public URL
+            public_url = f"{SUPABASE_URL}/storage/v1/object/public/{SB_BUCKET_NAME}/{filename}"
+            return public_url
+        else:
+            print(f"Storage upload failed: {r.status_code} {r.text}")
+            return None
+    except Exception as e:
+        print(f"Storage upload error: {e}")
+        return None
+
+def save_payment_request(uid, username, payment_method, proof_url, payment_id, amount):
+    """Saves payment request with public URL"""
     try:
         data = {
             "tg_id": uid,
             "username": username,
             "payment_method": payment_method,
-            "payment_proof": file_id,
+            "payment_proof": proof_url, # Now saving URL
             "payment_id": payment_id,
             "amount": amount,
             "status": "PENDING",
@@ -557,7 +610,7 @@ def main_bot_handle(update):
         
         scope, state, flow_data = get_state(uid)
 
-        # ===== 💳 PAYMENT PHOTO HANDLER =====
+        # ===== 💳 PAYMENT PHOTO HANDLER (UPDATED) =====
         if state == "waiting_payment_proof":
             photo = msg.get("photo")
             caption = msg.get("caption", "").strip()
@@ -570,6 +623,8 @@ def main_bot_handle(update):
                 send_msg(MAIN_BOT_API, chat_id, "❌ Please add a <b>caption</b> with your Payment ID/UTR/TxID.\n\nType the ID in the 'Add a caption...' field when sending the image.")
                 return jsonify({"ok": True})
             
+            send_msg(MAIN_BOT_API, chat_id, "⏳ <b>Uploading proof...</b> Please wait.")
+            
             file_id = photo[-1]["file_id"]
             payment_id = caption.split()[0] # Take first word as ID
             
@@ -580,7 +635,20 @@ def main_bot_handle(update):
             amount = f"₹{PAYMENT_AMOUNT_INR}" if method_type == "UPI" else f"${PAYMENT_AMOUNT_USD}"
             username = from_user.get("username", "No Username")
             
-            saved = save_payment_request(uid, username, full_method_str, file_id, payment_id, amount)
+            # 🚀 NEW: Download & Upload Logic
+            file_bytes, file_ext = download_telegram_photo(file_id)
+            
+            if not file_bytes:
+                send_msg(MAIN_BOT_API, chat_id, "❌ Failed to download photo from Telegram. Please try again.")
+                return jsonify({"ok": True})
+                
+            proof_url = upload_to_supabase_storage(file_bytes, file_ext)
+            
+            if not proof_url:
+                send_msg(MAIN_BOT_API, chat_id, "❌ Failed to upload proof to server. Please try again.")
+                return jsonify({"ok": True})
+            
+            saved = save_payment_request(uid, username, full_method_str, proof_url, payment_id, amount)
             
             if not saved:
                 send_msg(MAIN_BOT_API, chat_id, "❌ Failed to save payment request. Please try again.")
@@ -589,7 +657,7 @@ def main_bot_handle(update):
             clear_state(uid)
             send_msg(MAIN_BOT_API, chat_id, f"✅ <b>Payment Request Submitted!</b>\n\nPayment ID: <code>{payment_id}</code>\nMethod: {full_method_str}\nAmount: {amount}\n\n⏳ Admin will verify within 1-24 hours.")
             
-            # Notify admin with photo AND buttons (Method 2)
+            # Notify admin with photo URL AND buttons (Method 2)
             admin_msg = f"🔔 <b>NEW PAYMENT REQUEST</b>\nUser: @{username} (ID: <code>{uid}</code>)\nPayment ID: <code>{payment_id}</code>\nMethod: {full_method_str}\nAmount: {amount}\n\nApprove or Decline below:"
             
             admin_markup = {
@@ -602,16 +670,18 @@ def main_bot_handle(update):
             }
             
             try:
+                # Use photo URL directly
                 fast_session.post(f"{ADMIN_BOT_API}/sendPhoto", json={
                     "chat_id": ADMIN_IDS[0], 
-                    "photo": file_id, 
+                    "photo": proof_url, 
                     "caption": admin_msg, 
                     "parse_mode": "HTML",
                     "reply_markup": json.dumps(admin_markup)
                 }, timeout=10)
             except Exception as e:
                 print(f"Failed to send admin notification: {e}")
-                send_msg(ADMIN_BOT_API, ADMIN_IDS[0], f"⚠️ New payment from @{username} ({uid}) but failed to forward photo.")
+                # Fallback to text if photo fails
+                send_msg(ADMIN_BOT_API, ADMIN_IDS[0], admin_msg + f"\n\nProof URL: {proof_url}", reply_markup=admin_markup)
             
             return jsonify({"ok": True})
         # ===== END PAYMENT PHOTO HANDLER =====
