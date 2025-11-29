@@ -2206,7 +2206,7 @@ def check_subscription_notifications():
     
     try:
         # Fetch users who are not blocked and have an expiry date
-        users = sb_select("users", {"blocked": "false", "subscription_expiry": "neq.null"}, select="tg_id,subscription_expiry")
+        users = sb_select("users", {"blocked": 0, "subscription_expiry": "neq.null"}, select="tg_id,subscription_expiry")
         now = datetime.datetime.now(datetime.timezone.utc)
         
         markup = {
@@ -2279,8 +2279,8 @@ def subscription_job():
 
 scheduler = BackgroundScheduler(timezone=pytz.timezone('Asia/Kolkata'))
 
-# Tweet Poster: Every 1 minute
-scheduler.add_job(scheduled_job, 'interval', minutes=1, id='tweet_auto_poster')
+# Tweet Poster: Every 5 seconds
+scheduler.add_job(scheduled_job, 'interval', seconds=5, id='tweet_auto_poster')
 
 # Subscription Checker: Every 1 hour
 scheduler.add_job(subscription_job, 'interval', hours=1, id='subscription_checker')
