@@ -1580,7 +1580,21 @@
                 }
 
                 const response = await fetch(`${API_BASE}${endpoint}`, options);
-                if (response.status === 401) { logout(); return null; }
+                
+                // FIX: Check endpoint before logging out on 401
+                // This prevents "Logged out successfully" message when entering wrong password on login page
+                if (response.status === 401) {
+                    if (endpoint === '/api/login') {
+                        // Allow 401 to pass through for Login so we can catch "Wrong password"
+                        const data = await response.json();
+                        throw new Error(data.message || 'Wrong password');
+                    } else {
+                        // For other authenticated endpoints, logout is correct
+                        logout(); 
+                        return null;
+                    }
+                }
+
                 const data = await response.json();
                 if (!response.ok) throw new Error(data.message || 'Error');
                 return data;
