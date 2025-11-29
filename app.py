@@ -1419,29 +1419,29 @@ def admin_bot_handle(update):
 
         scope, state, flow_data = get_state(uid)
 
-if state and scope == "admin":
-    # Handle decline reason
-    if state == "waiting_decline_reason":
-        target_uid = flow_data.get("target_uid")
-        msg_id = flow_data.get("msg_id")
-        reason = text.strip()
-        handle_decline_payment(chat_id, target_uid, reason)
-        clear_state(uid)
-        # Try to remove buttons from original message if possible
-        if msg_id:
-            fast_session.post(f"{ADMIN_BOT_API}/editMessageReplyMarkup", json={
-                "chat_id": chat_id,
-                "message_id": msg_id,
-                "reply_markup": None
-            })
-        return jsonify({"ok": True})
-    
-    # Handle broadcast message
-    if state == "waiting_for_broadcast_message":
-        clear_state(uid)
-        return handle_broadcast_do(uid, chat_id, text, ADMIN_BOT_API)
-    
-    return admin_bot_flow_continue(uid, chat_id, text, state, flow_data)
+        if state and scope == "admin":
+            # Handle decline reason
+            if state == "waiting_decline_reason":
+                target_uid = flow_data.get("target_uid")
+                msg_id = flow_data.get("msg_id")
+                reason = text.strip()
+                handle_decline_payment(chat_id, target_uid, reason)
+                clear_state(uid)
+                # Try to remove buttons from original message if possible
+                if msg_id:
+                    fast_session.post(f"{ADMIN_BOT_API}/editMessageReplyMarkup", json={
+                        "chat_id": chat_id,
+                        "message_id": msg_id,
+                        "reply_markup": None
+                    })
+                return jsonify({"ok": True})
+            
+            # Handle broadcast message
+            if state == "waiting_for_broadcast_message":
+                clear_state(uid)
+                return handle_broadcast_do(uid, chat_id, text, ADMIN_BOT_API)
+            
+            return admin_bot_flow_continue(uid, chat_id, text, state, flow_data)
         
         cmd = text.split()[0].lower() if text.startswith("/") else None
 
@@ -1533,7 +1533,6 @@ if state and scope == "admin":
             except:
                 pass
         return jsonify({"ok": True})
-
 # --- ADMIN BOT FLOW CONTINUATION ---
 def admin_bot_flow_continue(uid, chat_id, text, state, flow_data):
     
