@@ -19,7 +19,7 @@ import threading
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 
-# 🚨 REAL API DEPENDENCY: requests_oauthlib is required for posting
+# 🚨 REAL API DEPENDENCY
 try:
     from requests_oauthlib import OAuth1Session
 except ImportError:
@@ -45,6 +45,7 @@ WEBSITE_URL = "https://bit.ly/flashautomation"
 # ===========================
 PAYMENT_AMOUNT_INR = "520"
 PAYMENT_AMOUNT_USD = "6"
+SUBSCRIPTION_DAYS = 30 # 📅 Monthly Plan
 
 # 🛠️ Payment Details
 UPI_ID_VAL = "yourname@okaxis" 
@@ -60,7 +61,7 @@ CRYPTO_WALLETS = {
 SUPABASE_URL = "https://tongguqakjcajxqhxszh.supabase.co"
 SUPABASE_API_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRvbmdndXFha2pjYWp4cWh4c3poIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc2NDMyOTYxOSwiZXhwIjoyMDc5OTA1NjE5fQ.fT8lhXtwnIZFbdV-wuYp2pcXXHhteyAkVlnEpRpBMBo"
 SB_TABLE_ACCOUNTS = "user_x_accounts"
-SB_BUCKET_NAME = "payment-proofs" # 🆕 Bucket Name
+SB_BUCKET_NAME = "payment-proofs"
 
 SB_HEADERS = {
     "apikey": SUPABASE_API_KEY,
@@ -70,11 +71,11 @@ SB_HEADERS = {
 }
 SB_HEADERS_UPSERT = {**SB_HEADERS, "Prefer": "return=representation,resolution=merge-duplicates"}
 
-# Super admins (can manage keys/admins, broadcast, block/unblock)
+# Super admins
 ADMIN_IDS = [6535216093]
 ADMIN_CONTACT = "@ox_anonymous"
 
-# Bot usernames (for UX hints)
+# Bot usernames
 MAIN_BOT_USERNAME = "@TweetAutomation_bot"
 LINK_BOT_USERNAME = "@TweetXLinks_bot"
 ADMIN_BOT_USERNAME = "@TweetAdminBotplusWeb_bot"
@@ -86,7 +87,7 @@ MAIN_BOT_API = f"https://api.telegram.org/bot{MAIN_BOT_TOKEN}"
 LINK_BOT_API = f"https://api.telegram.org/bot{LINK_BOT_TOKEN}"
 ADMIN_BOT_API = f"https://api.telegram.org/bot{ADMIN_BOT_TOKEN}"
 
-# Configuration for new features
+# Configuration
 MAX_ACCOUNTS_PER_USER = 250
 MAX_TWEET_LINES = 25
 MAX_MESSAGE_LENGTH = 4000
@@ -102,10 +103,10 @@ API_KEY_STEPS = [
     {"name": "Bearer Token (Optional)", "field": "bearer_token", "prompt": "🪪 (Optional) Enter the **Bearer Token** (or type 'skip')."}
 ]
 
-# ⚡ SPEED OPTIMIZATION: Thread pool for concurrent posting
+# ⚡ SPEED OPTIMIZATION: Thread pool
 posting_executor = ThreadPoolExecutor(max_workers=50)
 
-# ⚡ SPEED OPTIMIZATION: Fast HTTP session with connection pooling
+# ⚡ SPEED OPTIMIZATION: Fast HTTP session
 def create_fast_session():
     session = requests.Session()
     adapter = HTTPAdapter(
@@ -123,11 +124,10 @@ fast_session = create_fast_session()
 # 🚀 SUPABASE HELPERS
 # ======================
 def sb_select(table, params, single=False, select="*"):
-    """Generic Supabase SELECT"""
     try:
         url = f"{SUPABASE_URL}/rest/v1/{table}?select={select}"
         for key, value in params.items():
-            if isinstance(value, str) and ("in." in value or "neq." in value or "lte." in value or "is." in value):
+            if isinstance(value, str) and ("in." in value or "neq." in value or "lte." in value or "is." in value or "gte." in value):
                 url += f"&{key}={value}"
             else:
                 url += f"&{key}=eq.{value}"
@@ -147,7 +147,6 @@ def sb_select(table, params, single=False, select="*"):
         return None if single else []
 
 def sb_insert(table, data):
-    """Generic Supabase INSERT"""
     try:
         url = f"{SUPABASE_URL}/rest/v1/{table}"
         r = fast_session.post(url, headers=SB_HEADERS, json=data, timeout=10)
@@ -158,7 +157,6 @@ def sb_insert(table, data):
         return None
 
 def sb_update(table, data, params):
-    """Generic Supabase UPDATE"""
     try:
         url = f"{SUPABASE_URL}/rest/v1/{table}?"
         param_list = []
@@ -174,27 +172,20 @@ def sb_update(table, data, params):
         return False
 
 def sb_upsert(table, data_list, on_conflict=None):
-    """Generic Supabase UPSERT"""
     try:
         url = f"{SUPABASE_URL}/rest/v1/{table}"
-        
         headers = SB_HEADERS_UPSERT
         if on_conflict:
              headers = {**headers, "Prefer": f"return=representation,resolution=merge-duplicates,on_conflict={on_conflict}"}
 
         r = fast_session.post(url, headers=headers, json=data_list, timeout=10)
-        
-        if r.status_code not in [200, 201]:
-            print(f"Supabase UPSERT error on table {table} ({r.status_code}): {r.text}")
-            r.raise_for_status()
-            
+        r.raise_for_status()
         return r.json()
     except Exception as e:
         print(f"Supabase UPSERT error on table {table}: {e}")
         return None
 
 def sb_delete(table, params):
-    """Generic Supabase DELETE"""
     try:
         url = f"{SUPABASE_URL}/rest/v1/{table}?"
         query_params = []
@@ -207,22 +198,17 @@ def sb_delete(table, params):
         url += "&".join(query_params)
             
         r = fast_session.delete(url, headers=SB_HEADERS, timeout=10)
+        r.raise_for_status()
         
-        if r.status_code not in [200, 204]:
-            print(f"Supabase DELETE error on table {table} ({r.status_code}): {r.text}")
-            r.raise_for_status()
-            
         content_range = r.headers.get('Content-Range', '0-0/0')
         try:
             if '/' in content_range:
                 count = int(content_range.split('/')[-1])
             else:
                 count = 0
-        except (ValueError, IndexError):
+        except:
             count = 0
-            
         return count
-
     except Exception as e:
         print(f"Supabase DELETE error on table {table}: {e}")
         return 0
@@ -236,25 +222,15 @@ def now_utc_iso():
 def tz_now_str():
     return datetime.datetime.now(kolkata_tz).strftime("%Y-%m-%d %I:%M:%S %p %Z")
 
-# ===========================
-# 💳 PAYMENT HELPERS & STORAGE
-# ===========================
-
 def download_telegram_photo(file_id):
-    """Downloads photo from Telegram servers"""
     try:
-        # Get file path
         url = f"{MAIN_BOT_API}/getFile?file_id={file_id}"
         r = fast_session.get(url, timeout=10)
         res = r.json()
-        if not res.get("ok"):
-            print(f"TG GetFile Error: {res}")
-            return None, None
+        if not res.get("ok"): return None, None
         
         file_path = res["result"]["file_path"]
         file_ext = file_path.split('.')[-1] if '.' in file_path else "jpg"
-        
-        # Download content
         download_url = f"https://api.telegram.org/file/bot{MAIN_BOT_TOKEN}/{file_path}"
         r_content = fast_session.get(download_url, timeout=20)
         
@@ -266,46 +242,31 @@ def download_telegram_photo(file_id):
         return None, None
 
 def upload_to_supabase_storage(file_bytes, file_ext):
-    """Uploads bytes to Supabase Storage and returns Public URL"""
     try:
         filename = f"proof_{uuid.uuid4().hex}.{file_ext}"
-        
         url = f"{SUPABASE_URL}/storage/v1/object/{SB_BUCKET_NAME}/{filename}"
-        
-        # ✅ FIX: Use correct MIME type (image/jpeg not image/jpg)
-        mime_types = {
-            "jpg": "image/jpeg",   # ⚠️ This was the bug!
-            "jpeg": "image/jpeg",
-            "png": "image/png"
-        }
-        
+        mime_types = {"jpg": "image/jpeg", "jpeg": "image/jpeg", "png": "image/png"}
         content_type = mime_types.get(file_ext.lower(), "image/jpeg")
         
         headers = {
             "Authorization": f"Bearer {SUPABASE_API_KEY}",
             "Content-Type": content_type
         }
-        
         r = fast_session.post(url, headers=headers, data=file_bytes, timeout=20)
-        
         if r.status_code in [200, 201]: 
-            public_url = f"{SUPABASE_URL}/storage/v1/object/public/{SB_BUCKET_NAME}/{filename}"
-            return public_url
-        else:
-            print(f"Storage upload failed: {r.status_code} {r.text}")
-            return None
+            return f"{SUPABASE_URL}/storage/v1/object/public/{SB_BUCKET_NAME}/{filename}"
+        return None
     except Exception as e:
         print(f"Storage upload error: {e}")
         return None
 
 def save_payment_request(uid, username, payment_method, proof_url, payment_id, amount):
-    """Saves payment request with public URL"""
     try:
         data = {
             "tg_id": uid,
             "username": username,
             "payment_method": payment_method,
-            "payment_proof": proof_url, # Now saving URL
+            "payment_proof": proof_url,
             "payment_id": payment_id,
             "amount": amount,
             "status": "PENDING",
@@ -317,26 +278,60 @@ def save_payment_request(uid, username, payment_method, proof_url, payment_id, a
         print(f"Save payment request error: {e}")
         return False
 
+# ===========================
+# 🔄 NEW SUBSCRIPTION HELPERS
+# ===========================
 def is_user_authorized(uid):
-    """Checks if user is a Super Admin or has an APPROVED payment request"""
+    """Checks if user is a Super Admin or has VALID Subscription Date"""
     try:
         if is_super_admin(uid):
             return True
-        # Check if user has an approved payment
-        row = sb_select("payment_requests", 
-                        {"tg_id": uid, "status": "APPROVED"}, 
-                        single=True, select="id")
-        return row is not None
+        
+        # Check users table for subscription_expiry
+        row = sb_select("users", {"tg_id": uid}, single=True, select="subscription_expiry")
+        
+        if not row or not row.get("subscription_expiry"):
+            return False
+            
+        try:
+            # Parse expiry (handle potential 'Z' UTC marker)
+            expiry_str = row["subscription_expiry"].replace('Z', '+00:00')
+            expiry = datetime.datetime.fromisoformat(expiry_str)
+            now = datetime.datetime.now(datetime.timezone.utc)
+            
+            # Check if expiry is in the future
+            return expiry > now
+        except Exception as e:
+            print(f"Date parse error in auth check: {e}")
+            return False
+            
     except Exception as e:
         print(f"Authorization check error: {e}")
         return False
 
+def get_subscription_status(uid):
+    """Returns (is_active, expiry_string_ist)"""
+    if is_super_admin(uid):
+        return True, "Lifetime (Admin)"
+        
+    row = sb_select("users", {"tg_id": uid}, single=True, select="subscription_expiry")
+    if not row or not row.get("subscription_expiry"):
+        return False, "No active subscription"
+        
+    try:
+        expiry = datetime.datetime.fromisoformat(row["subscription_expiry"].replace('Z', '+00:00'))
+        is_active = expiry > datetime.datetime.now(datetime.timezone.utc)
+        
+        # Convert to IST for display
+        ist_expiry = expiry.astimezone(kolkata_tz).strftime('%Y-%m-%d %I:%M %p')
+        return is_active, ist_expiry
+    except:
+        return False, "Error parsing date"
+
 def hash_password(password: str) -> str:
-    """Hashes a password using SHA256."""
     return hashlib.sha256(password.encode()).hexdigest()
 
 def check_password(password: str, hash: str) -> bool:
-    """Checks if a given password matches the hash."""
     return hash_password(password) == hash
 
 def send_msg(api_url, chat_id, text, reply_markup=None):
@@ -391,12 +386,13 @@ def clear_state(uid: int):
 
 def record_user(user):
     uid = user["id"]
-    uname = user.get("username")
+    # Upsert with minimal data to ensure record exists but NOT overwriting existing expiry
     data_to_upsert = {
         "tg_id": uid,
-        "username": uname,
+        "username": user.get("username"),
         "joined_at": now_utc_iso()
     }
+    # Note: Supabase upsert will update provided fields. Expiry is not provided here so it persists.
     sb_upsert("users", [data_to_upsert], on_conflict="tg_id")
 
 def set_webhook(bot_token, path):
@@ -548,11 +544,30 @@ def main_bot_handle(update):
             uid = cb["from"]["id"]
             data = cb["data"]
             
-            # --- Payment Selection Logic ---
+            # --- Payment & Subscription Logic ---
+            if data == "renew_subscription":
+                # User clicked "Renew Now" on notification
+                payment_markup = {
+                    "inline_keyboard": [
+                        [{"text": "🇮🇳 UPI (India)", "callback_data": "pay_upi"}],
+                        [{"text": "🌍 CRYPTO (Global)", "callback_data": "pay_crypto"}]
+                    ]
+                }
+                msg = (
+                    f"🔄 <b>Renew Subscription</b>\n\n"
+                    f"Plan: <b>{SUBSCRIPTION_DAYS} Days</b> Access\n"
+                    f"Price: <b>₹{PAYMENT_AMOUNT_INR}</b> or <b>${PAYMENT_AMOUNT_USD}</b>\n\n"
+                    "👇 Select your payment method:"
+                )
+                set_state(uid, "main", "waiting_payment_method", data={})
+                fast_session.post(f"{MAIN_BOT_API}/answerCallbackQuery", json={"callback_query_id": cb["id"]})
+                send_msg(MAIN_BOT_API, chat_id, msg, reply_markup=payment_markup)
+                return jsonify({"ok": True})
+
             if data == "pay_upi":
                 msg = (
                     f"💳 <b>UPI Payment (India)</b>\n\n"
-                    f"💰 Amount: <b>₹{PAYMENT_AMOUNT_INR}</b>\n"
+                    f"💰 Amount: <b>₹{PAYMENT_AMOUNT_INR} / month</b>\n"
                     f"🆔 UPI ID: <code>{UPI_ID_VAL}</code>\n\n"
                     f"1. Send money to the UPI ID above.\n"
                     f"2. Take a screenshot.\n"
@@ -581,7 +596,7 @@ def main_bot_handle(update):
                 
                 msg = (
                     f"🪙 <b>CRYPTO Payment ({chain})</b>\n\n"
-                    f"💰 Amount: <b>${PAYMENT_AMOUNT_USD} USDT</b>\n"
+                    f"💰 Amount: <b>${PAYMENT_AMOUNT_USD} / month</b>\n"
                     f"⛓️ Network: <b>{chain}</b>\n"
                     f"👛 Address:\n<code>{wallet}</code>\n\n"
                     f"1. Send exactly ${PAYMENT_AMOUNT_USD}.\n"
@@ -594,7 +609,7 @@ def main_bot_handle(update):
                 send_msg(MAIN_BOT_API, chat_id, msg)
                 return jsonify({"ok": True})
             
-            # --- Existing Flow Logic (keep as is) ---
+            # --- Existing Flow Logic ---
             scope, state, flow_data = get_state(uid)
             if state == "schedule_flow_ampm":
                 return main_bot_flow_continue(uid, chat_id, data, state, flow_data, is_callback=True, callback_update=update)
@@ -619,7 +634,7 @@ def main_bot_handle(update):
         
         scope, state, flow_data = get_state(uid)
 
-        # ===== 💳 PAYMENT PHOTO HANDLER (UPDATED) =====
+        # ===== 💳 PAYMENT PHOTO HANDLER =====
         if state == "waiting_payment_proof":
             photo = msg.get("photo")
             caption = msg.get("caption", "").strip()
@@ -644,7 +659,7 @@ def main_bot_handle(update):
             amount = f"₹{PAYMENT_AMOUNT_INR}" if method_type == "UPI" else f"${PAYMENT_AMOUNT_USD}"
             username = from_user.get("username", "No Username")
             
-            # 🚀 NEW: Download & Upload Logic
+            # Download & Upload Logic
             file_bytes, file_ext = download_telegram_photo(file_id)
             
             if not file_bytes:
@@ -664,9 +679,9 @@ def main_bot_handle(update):
                 return jsonify({"ok": True})
             
             clear_state(uid)
-            send_msg(MAIN_BOT_API, chat_id, f"✅ <b>Payment Request Submitted!</b>\n\nPayment ID: <code>{payment_id}</code>\nMethod: {full_method_str}\nAmount: {amount}\n\n⏳ Admin will verify within 1-24 hours.")
+            send_msg(MAIN_BOT_API, chat_id, f"✅ <b>Payment Request Submitted!</b>\n\nPayment ID: <code>{payment_id}</code>\nMethod: {full_method_str}\nAmount: {amount}\n\n⏳ Admin will verify shortly.")
             
-            # Notify admin with photo URL AND buttons (Method 2)
+            # Notify admin with photo URL AND buttons
             admin_msg = f"🔔 <b>NEW PAYMENT REQUEST</b>\nUser: @{username} (ID: <code>{uid}</code>)\nPayment ID: <code>{payment_id}</code>\nMethod: {full_method_str}\nAmount: {amount}\n\nApprove or Decline below:"
             
             admin_markup = {
@@ -679,17 +694,15 @@ def main_bot_handle(update):
             }
             
             try:
-                # Use photo URL directly
                 fast_session.post(f"{ADMIN_BOT_API}/sendPhoto", json={
                     "chat_id": ADMIN_IDS[0], 
                     "photo": proof_url, 
                     "caption": admin_msg, 
-                    "parse_mode": "HTML",
+                    "parse_mode": "HTML", 
                     "reply_markup": json.dumps(admin_markup)
                 }, timeout=10)
             except Exception as e:
                 print(f"Failed to send admin notification: {e}")
-                # Fallback to text if photo fails
                 send_msg(ADMIN_BOT_API, ADMIN_IDS[0], admin_msg + f"\n\nProof URL: {proof_url}", reply_markup=admin_markup)
             
             return jsonify({"ok": True})
@@ -711,10 +724,12 @@ def main_bot_handle(update):
             first_name = html.escape(from_user.get("first_name", "User"))
             start_text = f"👋 Welcome, <b>{first_name}</b>! This is the <b>Tweet ➜ Telegram Automation Main Bot</b>!\n\n🌐 <b>Website Dashboard:</b> {WEBSITE_URL}\n\n"
             
-            if not is_user_authorized(uid):
-                start_text += f"⚠️ <b>Access Required</b>\n\n💳 <b>Price:</b> ₹{PAYMENT_AMOUNT_INR} or ${PAYMENT_AMOUNT_USD}\n\nUse <b>/connect</b> to access services."
+            is_auth, sub_info = get_subscription_status(uid)
+            
+            if is_auth:
+                start_text += f"✅ <b>Subscription Active</b>\n📅 Expires: {sub_info}\n\nUse <b>/help</b> to see all commands."
             else:
-                start_text += "✅ <b>You are authorized!</b>\n\nUse <b>/help</b> to see all commands."
+                start_text += f"⚠️ <b>Subscription Expired/Inactive</b>\n\n💳 <b>Plan:</b> {SUBSCRIPTION_DAYS} Days\n💰 <b>Price:</b> ₹{PAYMENT_AMOUNT_INR} or ${PAYMENT_AMOUNT_USD}\n\nUse <b>/connect</b> to activate services."
             
             send_msg(MAIN_BOT_API, chat_id, start_text)
             return jsonify({"ok": True})
@@ -722,37 +737,44 @@ def main_bot_handle(update):
         if cmd == "/help":
             base = (
                 "✨ <b>User Commands</b>\n"
-                "/start - Welcome message\n"
-                "/connect - Use access key to get authorized\n"
-                "/cancel - ❌ Cancel any active operation\n"
+                "/start - Check Status\n"
+                "/connect - 🔄 Renew/Buy Subscription\n"
+                "/cancel - ❌ Cancel operation\n"
             )
             if is_user_authorized(uid):
                 base += (
-                    "\n🌐 <b>Authorized Commands</b>\n"
-                    "/add_account - Start 6-step X API key setup\n"
-                    "/add_tweet - Add a new tweet text (supports bulk add)\n"
-                    "/schedule_tweet - Schedule all pending tweets for all accounts\n"
-                    "/delete_tweet_text - Delete a saved tweet text\n"
-                    "/delete_account - Remove a linked account\n"
-                    "/accounts - List your linked accounts\n"
-                    "/connect_web - Generate web sign-up key for dashboard\n"
-                    "/connectlinkbot - Generate Link Bot handshake key\n"
-                    "/status - Link Bot connection status\n"
-                    "/cancel - ❌ Cancel any active operation"
+                    "\n🌐 <b>Features</b>\n"
+                    "/add_account - Link X Account\n"
+                    "/add_tweet - Add Tweets\n"
+                    "/schedule_tweet - Schedule\n"
+                    "/delete_tweet_text - Delete Drafts\n"
+                    "/delete_account - Remove Account\n"
+                    "/accounts - List Accounts\n"
+                    "/connect_web - Web Dashboard Access\n"
+                    "/connectlinkbot - Connect Link Bot\n"
+                    "/status - Check Status"
                 )
             send_msg(MAIN_BOT_API, chat_id, base)
             return jsonify({"ok": True})
 
         if cmd == "/connect":
-            if is_user_authorized(uid):
-                send_msg(MAIN_BOT_API, chat_id, "✅ You are already authorized! Use <b>/help</b> for commands.")
-                return jsonify({"ok": True})
+            is_auth, sub_info = get_subscription_status(uid)
             
             existing = sb_select("payment_requests", {"tg_id": uid, "status": "PENDING"}, single=True, select="id,payment_id,created_at")
             if existing:
                 time_ago = existing.get('created_at', '')[:16].replace('T', ' ')
-                send_msg(MAIN_BOT_API, chat_id, f"⏳ <b>Payment Verification Pending</b>\n\nPayment ID: <code>{existing.get('payment_id', 'N/A')}</code>\nSubmitted: {time_ago}\n\nAdmin will verify soon.")
+                send_msg(MAIN_BOT_API, chat_id, f"⏳ <b>Verification Pending</b>\n\nPayment ID: <code>{existing.get('payment_id', 'N/A')}</code>\nSubmitted: {time_ago}")
                 return jsonify({"ok": True})
+            
+            msg = "💳 <b>Subscription Management</b>\n\n"
+            if is_auth:
+                msg += f"✅ You are currently active until: <b>{sub_info}</b>.\n"
+                msg += f"To extend for another {SUBSCRIPTION_DAYS} days, select payment below:"
+            else:
+                msg += f"⚠️ Subscription expired or inactive.\n\n"
+                msg += f"<b>Plan:</b> {SUBSCRIPTION_DAYS} Days Access\n"
+                msg += f"<b>Price:</b> ₹{PAYMENT_AMOUNT_INR} (INR) / ${PAYMENT_AMOUNT_USD} (USD)\n\n"
+                msg += "👇 <b>Select your payment method:</b>"
             
             payment_markup = {
                 "inline_keyboard": [
@@ -760,42 +782,21 @@ def main_bot_handle(update):
                     [{"text": "🌍 CRYPTO_USDT (Worldwide)", "callback_data": "pay_crypto"}]
                 ]
             }
-            msg = (
-                "💳 <b>Access to Premium Services</b>\n\n"
-                f"To use this bot, a one-time payment is required.\n"
-                f"<b>Price:</b> ₹{PAYMENT_AMOUNT_INR} (INR) / ${PAYMENT_AMOUNT_USD} (USD)\n\n"
-                "👇 <b>Select your payment method:</b>"
-            )
-            set_state(uid, "main", "waiting_payment_method", data={})
             send_msg(MAIN_BOT_API, chat_id, msg, reply_markup=payment_markup)
             return jsonify({"ok": True})
         
         if cmd == "/cancel":
             scope, state, _ = get_state(uid)
-            
             if state:
                 clear_state(uid)
-                
-                if "add_account" in state:
-                    msg = "❌ <b>Account Setup Cancelled</b>"
-                elif state == "waiting_for_tweet_text":
-                    msg = "❌ <b>Add Tweet Cancelled</b>"
-                elif "schedule_flow" in state:
-                    msg = "❌ <b>Schedule Cancelled</b>"
-                elif "delete" in state:
-                    msg = "❌ <b>Delete Cancelled</b>"
-                else:
-                    msg = "❌ <b>Operation Cancelled</b>"
-                
-                send_msg(MAIN_BOT_API, chat_id, msg + "\n\n💡 Use /help for commands.")
+                send_msg(MAIN_BOT_API, chat_id, "❌ Operation Cancelled.\n\n💡 Use /help for commands.")
             else:
                 send_msg(MAIN_BOT_API, chat_id, "⚠️ No active operation to cancel.")
-            
             return jsonify({"ok": True})
         
         # 2. Command Guard
         if cmd and not is_user_authorized(uid) and (cmd in AUTH_COMMANDS):
-            send_msg(MAIN_BOT_API, chat_id, f"🚫 You are not authorized.\nMessage admin {ADMIN_CONTACT} for access.")
+            send_msg(MAIN_BOT_API, chat_id, f"🚫 Subscription Required.\nYour plan has expired or you haven't subscribed.\n\nUse <b>/connect</b> to subscribe.")
             return jsonify({"ok": True})
 
         # 3. Authorized Command Execution
@@ -1593,7 +1594,7 @@ def handle_pending_payments_with_photos(chat_id):
                     "chat_id": chat_id, 
                     "photo": req['payment_proof'], 
                     "caption": caption, 
-                    "parse_mode": "HTML",
+                    "parse_mode": "HTML", 
                     "reply_markup": json.dumps(markup)
                 })
             else:
@@ -1687,6 +1688,7 @@ def handle_search_payment(chat_id, query):
         send_msg(ADMIN_BOT_API, chat_id, f"❌ Error: {e}")
     return jsonify({"ok": True})
 
+# 🆕 UPDATED APPROVAL LOGIC
 def handle_approve_payment(chat_id, user_id_text):
     try:
         tg_id = int(user_id_text)
@@ -1700,11 +1702,34 @@ def handle_approve_payment(chat_id, user_id_text):
             send_msg(ADMIN_BOT_API, chat_id, f"❌ No pending payment found for user ID <code>{tg_id}</code>.")
             return jsonify({"ok": True})
         
+        # Calculate new expiry
+        current_user = sb_select("users", {"tg_id": tg_id}, single=True, select="subscription_expiry")
+        now = datetime.datetime.now(datetime.timezone.utc)
+        
+        current_expiry = None
+        if current_user and current_user.get("subscription_expiry"):
+             try: current_expiry = datetime.datetime.fromisoformat(current_user["subscription_expiry"].replace('Z', '+00:00'))
+             except: pass
+        
+        # Logic: If active, extend current expiry. If not, start 30 days from now.
+        if current_expiry and current_expiry > now:
+            new_expiry = current_expiry + datetime.timedelta(days=SUBSCRIPTION_DAYS)
+        else:
+            new_expiry = now + datetime.timedelta(days=SUBSCRIPTION_DAYS)
+            
+        # Update User Table
+        sb_update("users", {"subscription_expiry": new_expiry.isoformat()}, {"tg_id": tg_id})
+        
+        # Update Request Status
         sb_update("payment_requests", {"status": "APPROVED", "admin_response": "Approved", "updated_at": now_utc_iso()}, {"tg_id": tg_id, "status": "PENDING"})
         
-        send_msg(MAIN_BOT_API, tg_id, f"🎉 <b>PAYMENT APPROVED!</b>\n\nYour payment has been verified.\nYou now have full access to TweetAutomation bot.\n\nUse <b>/help</b> to see all commands.")
-        send_msg(ADMIN_BOT_API, chat_id, f"✅ Payment APPROVED for user <code>{tg_id}</code> (@{req.get('username', 'N/A')}).")
+        ist_expiry = new_expiry.astimezone(kolkata_tz).strftime('%Y-%m-%d %I:%M %p')
+        
+        send_msg(MAIN_BOT_API, tg_id, f"🎉 <b>PAYMENT APPROVED!</b>\n\n✅ <b>Subscription Active</b>\n📅 Expiry: {ist_expiry}\n\nYou now have full access. Enjoy!")
+        send_msg(ADMIN_BOT_API, chat_id, f"✅ Payment APPROVED for user <code>{tg_id}</code>.\nNew Expiry: {ist_expiry}")
+        
     except Exception as e:
+        print(f"Approval Error: {e}")
         send_msg(ADMIN_BOT_API, chat_id, f"❌ Error: {e}")
     return jsonify({"ok": True})
 
@@ -2052,6 +2077,11 @@ def post_single_tweet_task(tweet):
         print(f"    ⚠️ SKIPPED (user blocked)")
         return (tweet_id, False, None, "User blocked", tg_id, account_username)
     
+    # 🆕 CHECK SUBSCRIPTION VALIDITY BEFORE POSTING
+    if not is_user_authorized(tg_id):
+        print(f"    ⚠️ SKIPPED (subscription expired)")
+        return (tweet_id, False, None, "Subscription Expired", tg_id, account_username)
+
     sb_update("scheduled_tweets", {"post_status": "PROCESSING"}, {"id": tweet_id})
     
     post_link, error = post_tweet_to_x(tweet_id, tg_id, account_username, tweet_text)
@@ -2091,8 +2121,6 @@ def check_and_post_scheduled_tweets():
             f"&order=scheduled_time.asc"
         )
         
-        print(f"🔍 Query URL: {url}")
-        
         r = fast_session.get(url, headers=SB_HEADERS, timeout=10)
         r.raise_for_status()
         tweets_to_post = r.json()
@@ -2114,8 +2142,6 @@ def check_and_post_scheduled_tweets():
     skipped_count = 0
 
     # 🚀 POST ALL TWEETS CONCURRENTLY (50 at once!)
-    print(f"\n⚡ MAXIMUM SPEED MODE: Posting {len(tweets_to_post)} tweets with {min(len(tweets_to_post), 50)} parallel threads...\n")
-    
     futures = []
     for tweet in tweets_to_post:
         future = posting_executor.submit(post_single_tweet_task, tweet)
@@ -2151,7 +2177,9 @@ def check_and_post_scheduled_tweets():
                     
             elif error == "User blocked":
                 skipped_count += 1
-                
+            elif error == "Subscription Expired":
+                skipped_count += 1
+                send_msg(MAIN_BOT_API, tg_id, f"❌ Tweet skipped for @{account_username}: <b>Subscription Expired</b>. Renew now.")
             else:
                 failed_count += 1
                 
@@ -2167,14 +2195,65 @@ def check_and_post_scheduled_tweets():
             print(f"❌ Error processing result: {e}")
             failed_count += 1
     
-    print(f"\n{'='*70}")
-    print(f"📊 SUMMARY:")
-    print(f"    ✅ Posted: {posted_count}")
-    print(f"    ❌ Failed: {failed_count}")
-    print(f"    ⚠️ Skipped: {skipped_count}")
-    print(f"{'='*70}\n")
-    
     return posted_count
+
+# ==========================
+# 🔔 SUBSCRIPTION NOTIFIER JOB
+# ==========================
+def check_subscription_notifications():
+    """Runs hourly to notify users about expiring subscriptions"""
+    print(f"\n🔍 Checking Subscriptions at {datetime.datetime.now(kolkata_tz)}")
+    
+    try:
+        # Fetch users who are not blocked and have an expiry date
+        users = sb_select("users", {"blocked": "false", "subscription_expiry": "neq.null"}, select="tg_id,subscription_expiry")
+        now = datetime.datetime.now(datetime.timezone.utc)
+        
+        markup = {
+            "inline_keyboard": [[{"text": "🔄 Renew Now", "callback_data": "renew_subscription"}]]
+        }
+        
+        for u in users:
+            if not u.get("subscription_expiry"): continue
+            
+            try:
+                expiry = datetime.datetime.fromisoformat(u["subscription_expiry"].replace('Z', '+00:00'))
+                diff = expiry - now
+                
+                hours_left = diff.total_seconds() / 3600
+                days_left = diff.days
+                
+                # Logic to avoid spam: precise windows
+                
+                # 1. 5 Days Before (Approx 120 hours)
+                if 119 <= hours_left < 120:
+                    send_msg(MAIN_BOT_API, u['tg_id'], 
+                             f"⏳ <b>5 Days Left!</b>\nYour plan expires on {expiry.astimezone(kolkata_tz).strftime('%d %b %Y')}.\nRenew now to avoid interruption.", 
+                             reply_markup=markup)
+                
+                # 2. 1 Day Before (24 hours)
+                elif 23 <= hours_left < 24:
+                    send_msg(MAIN_BOT_API, u['tg_id'], 
+                             f"⚠️ <b>Expiring Tomorrow!</b>\nLess than 24 hours remaining.\nPlease renew your subscription.", 
+                             reply_markup=markup)
+                    
+                # 3. 1 Hour Before
+                elif 1 <= hours_left < 2:
+                    send_msg(MAIN_BOT_API, u['tg_id'], 
+                             f"🚨 <b>Expiring Soon!</b>\nYour plan ends in 1 hour.", 
+                             reply_markup=markup)
+                    
+                # 4. Just Expired (0 to -1 hour) - trigger once after expiration
+                elif -1 < hours_left <= 0:
+                     send_msg(MAIN_BOT_API, u['tg_id'], 
+                              f"❌ <b>Plan Expired</b>\nYour subscription has ended. Scheduled tweets will not post.\nUse /connect to renew.", 
+                              reply_markup=markup)
+
+            except Exception as e:
+                print(f"Sub Check Error for {u['tg_id']}: {e}")
+                
+    except Exception as e:
+        print(f"Subscription scheduler error: {e}")
 
 # ============================
 # FLASK APP ROUTES
@@ -2183,28 +2262,33 @@ app = Flask(__name__)
 
 # 🆕 ==================== AUTO-SCHEDULER ====================
 def scheduled_job():
-    """Runs every 1 minute automatically"""
+    """Wrapper for tweet poster"""
     try:
         with app.app_context():
-            print(f"\n🔔 AUTO-SCHEDULER TRIGGERED at {datetime.datetime.now(kolkata_tz).strftime('%I:%M:%S %p')}")
-            posted = check_and_post_scheduled_tweets()
-            print(f"✅ Scheduler done. Posted: {posted}\n")
+            check_and_post_scheduled_tweets()
     except Exception as e:
         print(f"❌ Scheduler error: {e}")
-        traceback.print_exc()
+
+def subscription_job():
+    """Wrapper for subscription checker"""
+    try:
+        with app.app_context():
+            check_subscription_notifications()
+    except Exception as e:
+        print(f"❌ Sub Job error: {e}")
 
 scheduler = BackgroundScheduler(timezone=pytz.timezone('Asia/Kolkata'))
-scheduler.add_job(
-    func=scheduled_job, 
-    trigger="interval", 
-    seconds=5, 
-    id='tweet_auto_poster'
-)
-scheduler.start()
 
+# Tweet Poster: Every 1 minute
+scheduler.add_job(scheduled_job, 'interval', minutes=1, id='tweet_auto_poster')
+
+# Subscription Checker: Every 1 hour
+scheduler.add_job(subscription_job, 'interval', hours=1, id='subscription_checker')
+
+scheduler.start()
 atexit.register(lambda: scheduler.shutdown())
 
-print("✅ Auto-scheduler started! Runs every 5 seconds.")
+print("✅ Auto-scheduler started! Tweet Poster (1m) & Sub Checker (1h).")
 # ===========================================================
 
 @app.route("/webhook_main", methods=["POST"])
@@ -2222,17 +2306,6 @@ def webhook_admin():
     upd = request.get_json(silent=True) or {}
     return admin_bot_handle(upd)
 
-@app.route("/scraper_notify", methods=["POST"])
-def scraper_notify():
-    data = request.get_json(silent=True) or {}
-    secret = request.headers.get("X-Webhook-Secret") or data.get("webhook_secret")
-    
-    if secret != WEBHOOK_SECRET:
-        return jsonify({"status": "error", "message": "Invalid WEBHOOK_SECRET"}), 401
-
-    print(f"Scraper Notify called but scraping is disabled. Data: {data}")
-    return jsonify({"status": "warning", "message": "Scraping is disabled. This endpoint is inactive."}), 200
-
 @app.route("/check_scheduler", methods=["GET"])
 def scheduler_trigger():
     posted = check_and_post_scheduled_tweets()
@@ -2242,12 +2315,13 @@ def scheduler_trigger():
 def health():
     return jsonify({"ok": True, "time": tz_now_str()})
 
-# --- WEBSITE API ENDPOINTS ---
+# ============================
+# WEBSITE API ENDPOINTS
+# ============================
 
 def validate_web_access(func):
     def wrapper(*args, **kwargs):
         access_key = request.headers.get("X-Access-Key")
-        
         if not access_key:
             access_key = request.args.get("key")
         
@@ -2268,6 +2342,10 @@ def validate_web_access(func):
             if is_blocked(tg_id):
                 return jsonify({"status": "error", "message": "User is blocked. Access denied."}), 401
             
+            # 🆕 Check Subscription on Web Access too
+            if not is_user_authorized(tg_id):
+                 return jsonify({"status": "error", "message": "Subscription expired. Renew via Telegram bot."}), 403
+
             kwargs['tg_id'] = tg_id
             return func(*args, **kwargs)
         except Exception as e:
@@ -2299,7 +2377,6 @@ def api_signup():
             return jsonify({"status": "error", "message": "Sign Up Key has expired. Please get a new one from the bot."}), 401
             
         tg_id = key_row['tg_id']
-        
         sb_delete("web_keys", {"key": web_key})
         
     except Exception as e:
@@ -2355,6 +2432,10 @@ def api_login():
 
         if is_blocked(tg_id):
             return jsonify({"status": "error", "message": "Your account is blocked. Contact admin."}), 403
+            
+        # Check subscription on login
+        if not is_user_authorized(tg_id):
+             return jsonify({"status": "error", "message": "Subscription expired. Please renew via Telegram bot."}), 403
 
         web_key = str(uuid.uuid4().hex[:10]).upper()
         expires_at = datetime.datetime.now(pytz.utc) + datetime.timedelta(days=7)
@@ -2504,6 +2585,11 @@ def api_verify_key():
             if expires > datetime.datetime.now(pytz.utc):
                 if is_blocked(row['tg_id']):
                     return jsonify({"status": "error", "message": "User is blocked"}), 401 
+                
+                # Check subscription
+                if not is_user_authorized(row['tg_id']):
+                    return jsonify({"status": "error", "message": "Subscription expired"}), 403
+
                 return jsonify({"status": "ok", "tg_id": row["tg_id"]}), 200
             else:
                 return jsonify({"status": "error", "message": "Key expired"}), 401
@@ -2559,19 +2645,14 @@ def api_get_tweets(tg_id):
         r.raise_for_status()
         tweets = r.json()
         
-        # ✅ FIX 1: Convert UTC to IST before sending to frontend
+        # Convert UTC to IST before sending to frontend
         for t in tweets:
             if t['scheduled_time']:
                 try:
-                    # Parse UTC string from Supabase
                     utc_dt = datetime.datetime.fromisoformat(t['scheduled_time'].replace('Z', '+00:00')).replace(tzinfo=pytz.utc)
-                    # Convert to IST
                     ist_dt = utc_dt.astimezone(kolkata_tz)
-                    # Format for human readable display
                     t['scheduled_time'] = ist_dt.strftime('%Y-%m-%d %I:%M %p')
                 except Exception as e:
-                    print(f"Time conversion error for tweet {t['id']}: {e}")
-                    # If conversion fails, keep original or set error string
                     pass
         
         return jsonify(tweets), 200
@@ -2677,8 +2758,8 @@ def api_post_all_tweets_now(tg_id):
          tweet_id, success, post_link, error, uid, username = future.result()
          if success:
              posted_count += 1
-             sb_update("scheduled_tweets",
-                       {"post_status": "POSTED", "post_link": post_link, "account_username": username, "scheduled_time": now_utc_iso()},
+             sb_update("scheduled_tweets", 
+                       {"post_status": "POSTED", "post_link": post_link, "account_username": username, "scheduled_time": now_utc_iso()}, 
                        {"id": tweet_id})
              
              for chat_id in link_bot_chat_ids:
@@ -2686,8 +2767,8 @@ def api_post_all_tweets_now(tg_id):
 
          else:
              failed_count += 1
-             sb_update("scheduled_tweets",
-                       {"post_status": "FAILED", "account_username": username},
+             sb_update("scheduled_tweets", 
+                       {"post_status": "FAILED", "account_username": username}, 
                        {"id": tweet_id})
 
     # 6. Delete Extras
@@ -2858,72 +2939,6 @@ def api_status(tg_id):
         "pending_tweets": pending_count,
         "link_bot_connected": link_status, 
         "server_time_ist": tz_now_str()
-    }), 200
-
-@app.route("/test_supabase_insert", methods=["GET"])
-def test_supabase_insert():
-    """Direct Supabase insert test"""
-    
-    test_uid = 6535216093  # Your admin ID
-    test_payload = {
-        "tg_id": test_uid,
-        "username": "test_raj_delete_me",
-        "api_key": "test_key_123",
-        "api_secret": "test_secret_456",
-        "access_token": "test_token_789",
-        "access_token_secret": "test_token_secret_012",
-        "bearer_token": "test_bearer_345"
-    }
-    
-    results = []
-    
-    # Test 1: Table exists?
-    try:
-        url = f"{SUPABASE_URL}/rest/v1/{SB_TABLE_ACCOUNTS}?limit=1"
-        r = fast_session.get(url, headers=SB_HEADERS, timeout=10)
-        results.append({
-            "test": "Table Check",
-            "status": r.status_code,
-            "response": r.text,
-            "success": r.status_code == 200
-        })
-    except Exception as e:
-        results.append({
-            "test": "Table Check",
-            "error": str(e),
-            "success": False
-        })
-    
-    # Test 2: INSERT
-    try:
-        url = f"{SUPABASE_URL}/rest/v1/{SB_TABLE_ACCOUNTS}"
-        r = fast_session.post(url, headers=SB_HEADERS, json=test_payload, timeout=10)
-        results.append({
-            "test": "INSERT",
-            "status": r.status_code,
-            "response": r.text,
-            "success": r.status_code in (200, 201, 204, 409) 
-        })
-        
-        # Test 3: Cleanup
-        delete_url = f"{SUPABASE_URL}/rest/v1/{SB_TABLE_ACCOUNTS}?tg_id=eq.{test_uid}&username=eq.test_raj_delete_me"
-        r_del = fast_session.delete(delete_url, headers=SB_HEADERS, timeout=10)
-        results.append({
-            "test": "Cleanup",
-            "status": r_del.status_code,
-            "success": r_del.status_code in (200, 204)
-        })
-    except Exception as e:
-        results.append({
-            "test": "INSERT/DELETE",
-            "error": str(e),
-            "success": False
-        })
-    
-    return jsonify({
-        "supabase_url": SUPABASE_URL,
-        "table_name": SB_TABLE_ACCOUNTS,
-        "results": results
     }), 200
 
 # =============
