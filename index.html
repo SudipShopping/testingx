@@ -905,6 +905,16 @@
                 
                 <!-- VIEW: DASHBOARD -->
                 <div id="view-dashboard" class="page-view active">
+                    
+                    <!-- 🆕 EXPIRY WARNING BANNER (Hidden by default) -->
+                    <div id="expiry-warning-banner" class="hidden" style="background:linear-gradient(135deg, var(--warn-color), #ff8800); padding:15px 20px; border-radius:12px; margin-bottom:20px; display:flex; align-items:center; gap:15px; box-shadow:0 5px 15px rgba(255,187,51,0.3);">
+                        <i data-lucide="alert-triangle" size="24" style="color:white"></i>
+                        <div style="flex:1;">
+                            <strong style="color:white; font-size:16px;">⚠️ Subscription Expiring Soon!</strong>
+                            <p style="margin:5px 0 0 0; color:rgba(255,255,255,0.9); font-size:13px;" id="expiry-warning-text">Your plan expires in X days. Renew now to continue automation.</p>
+                        </div>
+                    </div>
+
                     <!-- DYNAMIC FESTIVAL BANNER (Injected by JS) -->
                     <div id="festival-banner" class="hidden" style="background:linear-gradient(135deg, var(--primary-color), var(--primary-hover)); padding:25px; border-radius:20px; margin-bottom:25px; display:flex; align-items:center; gap:20px; box-shadow:0 10px 30px var(--primary-glow); position:relative; overflow:hidden;">
                         <img id="festival-image" src="" style="width:80px; height:80px; animation:bounce 2s infinite;" alt="Festival">
@@ -935,6 +945,14 @@
                             <div class="stat-label">Link Bot Status</div>
                             <div class="stat-value" id="status-linkbot" style="font-size:20px; margin-top:15px;">--</div>
                             <i data-lucide="link" style="position:absolute; right:20px; top:20px; opacity:0.2" size="40"></i>
+                        </div>
+                        
+                        <!-- 🆕 NEW SUBSCRIPTION CARD -->
+                        <div class="stat-card">
+                            <div class="stat-label">Subscription Status</div>
+                            <div class="stat-value" id="status-subscription" style="font-size:16px; margin-top:10px;">--</div>
+                            <div id="status-sub-expiry" style="color:var(--text-muted); font-size:12px; margin-top:5px;"></div>
+                            <i data-lucide="calendar-check" style="position:absolute; right:20px; top:20px; opacity:0.2" size="40"></i>
                         </div>
                     </div>
 
@@ -1603,6 +1621,75 @@
             } else {
                 lb.textContent = 'Offline'; lb.style.color = 'var(--error-color)';
             }
+
+            // 🆕 NEW: Subscription Status Display Logic
+            const subStatus = document.getElementById('status-subscription');
+            const subExpiry = document.getElementById('status-sub-expiry');
+            
+            if (data.subscription_expiry) {
+                try {
+                    const expiryDate = new Date(data.subscription_expiry);
+                    const now = new Date();
+                    
+                    if (expiryDate > now) {
+                        // Active Subscription
+                        subStatus.textContent = '✅ Active';
+                        subStatus.style.color = 'var(--success-color)';
+                        
+                        // Calculate remaining days
+                        const daysLeft = Math.ceil((expiryDate - now) / (1000 * 60 * 60 * 24));
+                        
+                        // Format expiry date in IST
+                        const formattedDate = expiryDate.toLocaleString('en-IN', {
+                            timeZone: 'Asia/Kolkata',
+                            year: 'numeric',
+                            month: 'short',
+                            day: 'numeric',
+                            hour: '2-digit',
+                            minute: '2-digit'
+                        });
+                        
+                        subExpiry.textContent = `Expires: ${formattedDate} (${daysLeft} days left)`;
+                        
+                        // Expiry Warning Logic
+                        const warningBanner = document.getElementById('expiry-warning-banner');
+                        const warningText = document.getElementById('expiry-warning-text');
+                        
+                        // Warning color if less than 5 days
+                        if (daysLeft <= 5) {
+                            subExpiry.style.color = 'var(--warn-color)';
+                            
+                            // Show top banner warning
+                            if (daysLeft > 0) {
+                                warningBanner.classList.remove('hidden');
+                                warningText.textContent = `Your plan expires in ${daysLeft} day${daysLeft > 1 ? 's' : ''}. Renew via Telegram bot to avoid service interruption.`;
+                            }
+                        } else {
+                             warningBanner.classList.add('hidden');
+                        }
+                    } else {
+                        // Expired
+                        subStatus.textContent = '❌ Expired';
+                        subStatus.style.color = 'var(--error-color)';
+                        subExpiry.textContent = 'Please renew via Telegram bot';
+                        subExpiry.style.color = 'var(--error-color)';
+                        document.getElementById('expiry-warning-banner').classList.add('hidden');
+                    }
+                } catch (e) {
+                    console.error('Date parse error:', e);
+                    subStatus.textContent = '⚠️ Error';
+                    subStatus.style.color = 'var(--warn-color)';
+                    subExpiry.textContent = 'Contact support';
+                }
+            } else {
+                // No subscription data (Super Admin or New User)
+                subStatus.textContent = '♾️ Lifetime';
+                subStatus.style.color = 'var(--primary-color)';
+                subExpiry.textContent = 'Admin Access';
+                document.getElementById('expiry-warning-banner').classList.add('hidden');
+            }
+            
+            lucide.createIcons(); // Refresh icons for new elements
         }
 
         async function loadAccounts() {
