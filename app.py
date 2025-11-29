@@ -271,15 +271,24 @@ def upload_to_supabase_storage(file_bytes, file_ext):
         filename = f"proof_{uuid.uuid4().hex}.{file_ext}"
         
         url = f"{SUPABASE_URL}/storage/v1/object/{SB_BUCKET_NAME}/{filename}"
+        
+        # ✅ FIX: Use correct MIME type (image/jpeg not image/jpg)
+        mime_types = {
+            "jpg": "image/jpeg",   # ⚠️ This was the bug!
+            "jpeg": "image/jpeg",
+            "png": "image/png"
+        }
+        
+        content_type = mime_types.get(file_ext.lower(), "image/jpeg")
+        
         headers = {
             "Authorization": f"Bearer {SUPABASE_API_KEY}",
-            "Content-Type": f"image/{file_ext}"
+            "Content-Type": content_type
         }
         
         r = fast_session.post(url, headers=headers, data=file_bytes, timeout=20)
         
         if r.status_code in [200, 201]: 
-            # Construct public URL
             public_url = f"{SUPABASE_URL}/storage/v1/object/public/{SB_BUCKET_NAME}/{filename}"
             return public_url
         else:
