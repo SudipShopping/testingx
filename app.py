@@ -2937,12 +2937,22 @@ def api_status(tg_id):
         print(f"Link bot status check failed: {e}")
         link_status = False
     
+    # 🆕 FETCH SUBSCRIPTION EXPIRY
+    subscription_expiry = None
+    try:
+        user_row = sb_select("users", {"tg_id": tg_id}, single=True, select="subscription_expiry")
+        if user_row and user_row.get("subscription_expiry"):
+            subscription_expiry = user_row["subscription_expiry"]
+    except Exception as e:
+        print(f"Subscription fetch error: {e}")
+    
     return jsonify({
         "status": "ok",
         "account_count": account_count,
         "pending_tweets": pending_count,
         "link_bot_connected": link_status, 
-        "server_time_ist": tz_now_str()
+        "server_time_ist": tz_now_str(),
+        "subscription_expiry": subscription_expiry  # 🆕 NEW FIELD
     }), 200
 
 # =============
